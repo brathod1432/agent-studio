@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="referrer" content="no-referrer" />
+  <title>Agent Studio — Onboarding</title>
+  <style>
+    :root { color-scheme: light dark; }
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #0f1115; color: #e6e6e6; }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 32px 20px 64px; }
+    h1 { font-size: 22px; margin: 0 0 4px; }
+    .sub { color: #9aa0a6; margin: 0 0 24px; font-size: 14px; }
+    .steps { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+    .chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #1b1f27; color: #9aa0a6; }
+    .chip.active { background: #2b6cb0; color: #fff; }
+    .chip.done { background: #276749; color: #fff; }
+    .card { background: #161a22; border: 1px solid #232936; border-radius: 12px; padding: 20px; }
+    label { display: block; font-size: 13px; margin: 14px 0 6px; color: #c8ccd2; }
+    input, select { width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #2a3140;
+      background: #0f1319; color: #e6e6e6; font-size: 14px; }
+    .provider { border: 1px solid #2a3140; border-radius: 10px; padding: 12px; margin: 8px 0; cursor: pointer; }
+    .provider:hover { border-color: #2b6cb0; }
+    .provider.sel { border-color: #2b6cb0; background: #12202f; }
+    .provider .name { font-weight: 600; }
+    .provider .note { color: #9aa0a6; font-size: 12px; margin-top: 4px; }
+    .row { display: flex; gap: 12px; margin-top: 20px; }
+    button { padding: 10px 16px; border-radius: 8px; border: 0; background: #2b6cb0; color: #fff;
+      font-size: 14px; cursor: pointer; }
+    button.secondary { background: #232936; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre { white-space: pre-wrap; background: #0f1319; border: 1px solid #232936; border-radius: 8px;
+      padding: 14px; font-size: 13px; overflow-x: auto; }
+    .ok { color: #68d391; } .warn { color: #f6ad55; } .err { color: #fc8181; }
+    .hint { font-size: 12px; color: #9aa0a6; margin-top: 6px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Welcome to Agent Studio</h1>
+    <p class="sub">Configure a provider to get started. Your API key stays on this machine and is never logged.</p>
+
+    <div class="steps">
+      <span class="chip" data-step="1">1 · Provider</span>
+      <span class="chip" data-step="2">2 · Credentials</span>
+      <span class="chip" data-step="3">3 · Model</span>
+      <span class="chip" data-step="4">4 · Test</span>
+      <span class="chip" data-step="5">5 · Start</span>
+    </div>
+
+    <div class="card" id="card"></div>
+  </div>
+
+  <script>
+    const api = async (path, body) => {
+      const res = await fetch(path, {
+        method: body ? 'POST' : 'GET',
+        headers: body ? { 'Content-Type': 'application/json' } : undefined,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return res.json();
+    };
+
+    const state = { step: 1, providers: [], selected: null, suggestedModel: '', report: null, saveKey: true };
+    const card = document.getElementById('card');
+
+    function setStepUI(n) {
+      state.step = n;
+      document.querySelectorAll('.chip').forEach((c) => {
+        const s = Number(c.dataset.step);
+        c.classList.toggle('active', s === n);
+        c.classList.toggle('done', s < n);
+      });
+    }
+
+    function esc(s) { return String(s ?? '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m])); }
+
+    async function renderProviders() {
+      setStepUI(1);
+      const { providers } = await api('/api/providers');
+      state.providers = providers;
+      card.innerHTML =
+        '<label>Step 1: Choose a provider</label>' +
+        providers.map((p) =>
+          `<div class="provider" data-id="${esc(p.id)}">
+             <div class="name">${esc(p.label)}</div>
+             <div class="note">${esc(p.notes || (p.baseUrl || 'Custom endpoint'))}</div>
+           </div>`).join('') +
+        '<div class="row"><button id="next" disabled>Continue</button></div>';
+      card.querySelectorAll('.provider').forEach((el) => {
+        el.onclick = () => {
+          card.querySelectorAll('.provider').forEach((x) => x.classList.remove('sel'));
+          el.classList.add('sel');
+          state.selected = el.dataset.id;
+          document.getElementById('next').disabled = false;
+        };
+      });
+      document.getElementById('next').onclick = async () => {
+        const r = await api('/api/choose', { providerId: state.selected });
+        renderCredentials(r.view);
+      };
+    }
+
+    function renderCredentials(view) {
+      setStepUI(2);
+      const needsBaseUrl = view.needsBaseUrl;
+      const apiKeyEnv = view.apiKeyEnv || '';
+      card.innerHTML =
+        '<label>Step 2: Enter credentials</label>' +
+        (needsBaseUrl
+          ? '<label>Base URL</label><input id="baseUrl" placeholder="https://host/v1" value="' + esc(view.baseUrl) + '">'
+          : '<div class="hint">Endpoint: ' + esc(view.baseUrl) + '</div>') +
+        (view.keyAlreadyInEnv
+          ? '<div class="hint ok">Found ' + esc(apiKeyEnv) + ' in your environment; you can leave the key blank to use it.</div>'
+          : '') +
+        '<label>API key' + (view.requiresApiKey ? '' : ' (optional)') + '</label>' +
+        '<input id="apiKey" type="password" autocomplete="off" placeholder="paste key (hidden, never logged)">' +
+        (apiKeyEnv ? '' : '<label>Env var name for the key</label><input id="envName" placeholder="CUSTOM_API_KEY">') +
+        '<label><input type="checkbox" id="saveKey" checked style="width:auto"> Save key to .env.local (git-ignored)</label>' +
+        '<div class="row"><button class="secondary" id="back">Back</button><button id="next">Continue</button></div>';
+      document.getElementById('back').onclick = renderProviders;
+      document.getElementById('next').onclick = async () => {
+        if (needsBaseUrl) {
+          await api('/api/endpoint', { baseUrl: document.getElementById('baseUrl').value });
+        }
+        const key = document.getElementById('apiKey').value;
+        const envNameEl = document.getElementById('envName');
+        state.saveKey = document.getElementById('saveKey').checked;
+        await api('/api/credentials', { apiKey: key || undefined, apiKeyEnvName: envNameEl ? envNameEl.value : undefined });
+        const r = await api('/api/confirm');
+        if (!r.ok) { alert(r.error); return; }
+        renderModel(r.view);
+      };
+    }
+
+    function renderModel(view) {
+      setStepUI(3);
+      state.suggestedModel = view.suggestedModel || '';
+      card.innerHTML =
+        '<label>Step 3: Select a model</label>' +
+        '<input id="model" value="' + esc(state.suggestedModel) + '" placeholder="model id">' +
+        '<div class="hint">Default comes from configuration; you can change it any time.</div>' +
+        '<div class="row"><button id="next">Continue</button></div>';
+      document.getElementById('next').onclick = async () => {
+        const r = await api('/api/model', { model: document.getElementById('model').value });
+        if (!r.ok) { alert(r.error); return; }
+        renderTest();
+      };
+    }
+
+    async function renderTest() {
+      setStepUI(4);
+      card.innerHTML = '<label>Step 4: Test connection</label><pre>Testing…</pre>';
+      const r = await api('/api/test');
+      state.report = r.view.report;
+      const rep = state.report;
+      const cls = rep.overall === 'ok' ? 'ok' : rep.overall === 'warn' ? 'warn' : 'err';
+      const lines = [
+        'Provider:  ' + rep.provider.label + ' (' + rep.provider.kind + ')',
+        'Endpoint:  ' + rep.provider.baseUrl,
+        'Model:     ' + rep.provider.model,
+        'API key:   ' + rep.provider.apiKeyMasked,
+        'Overall:   ' + rep.overall.toUpperCase(),
+        '',
+        'Checks:',
+        ...rep.checks.map((c) => '  ' + (c.status === 'ok' ? '✓' : c.status === 'warn' ? '!' : '✗') + ' ' + c.name + ': ' + c.message),
+      ].join('\n');
+      card.innerHTML =
+        '<label>Step 4: Test connection</label>' +
+        '<pre class="' + cls + '">' + esc(lines) + '</pre>' +
+        '<div class="row"><button class="secondary" id="retry">Re-test</button><button id="next">' +
+        (rep.overall === 'error' ? 'Save anyway' : 'Continue') + '</button></div>';
+      document.getElementById('retry').onclick = renderTest;
+      document.getElementById('next').onclick = complete;
+    }
+
+    async function complete() {
+      const r = await api('/api/complete', { saveKeyToEnv: state.saveKey });
+      setStepUI(5);
+      card.innerHTML =
+        '<label>Step 5: Start workspace</label>' +
+        '<pre class="ok">Configuration saved.\n\nSettings: ' + esc(r.savedPath) +
+        (r.envSaved ? '\nAPI key saved to .env.local as ' + esc(r.apiKeyEnv) + ' (git-ignored).' : '') +
+        '\n\nYou are ready to open a workspace.</pre>' +
+        '<div class="row"><button class="secondary" id="restart">Start over</button></div>';
+      document.getElementById('restart').onclick = async () => { await api('/api/reset'); renderProviders(); };
+    }
+
+    renderProviders();
+  </script>
+</body>
+</html>

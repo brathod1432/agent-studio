@@ -1,0 +1,71 @@
+{
+  "$schema": "./providers.schema.md",
+  "description": "Built-in provider presets. Users may add/override providers via settings without code changes.",
+  "providers": {
+    "nvidia": {
+      "id": "nvidia",
+      "label": "NVIDIA",
+      "kind": "openai-compatible",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKeyEnv": "NVIDIA_API_KEY",
+      "requiresApiKey": true,
+      "defaultModel": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "docsUrl": "https://build.nvidia.com",
+      "notes": "Default development provider. OpenAI-compatible endpoint (hosted or self-hosted NIM)."
+    },
+    "openai-compatible": {
+      "id": "openai-compatible",
+      "label": "OpenAI Compatible",
+      "kind": "openai-compatible",
+      "baseUrl": "",
+      "apiKeyEnv": "OPENAI_COMPATIBLE_API_KEY",
+      "requiresApiKey": false,
+      "defaultModel": "",
+      "docsUrl": "",
+      "notes": "Any OpenAI-compatible endpoint. Provide the base URL and (optionally) an API key."
+    },
+    "openai": {
+      "id": "openai",
+      "label": "OpenAI",
+      "kind": "openai-compatible",
+      "baseUrl": "https://api.openai.com/v1",
+      "apiKeyEnv": "OPENAI_API_KEY",
+      "requiresApiKey": true,
+      "defaultModel": "gpt-4o-mini",
+      "docsUrl": "https://platform.openai.com/docs"
+    },
+    "anthropic": {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "kind": "anthropic",
+      "baseUrl": "https://api.anthropic.com/v1",
+      "apiKeyEnv": "ANTHROPIC_API_KEY",
+      "requiresApiKey": true,
+      "defaultModel": "claude-3-5-sonnet-latest",
+      "docsUrl": "https://docs.anthropic.com",
+      "notes": "Native Anthropic schema. Adapter is a stub in this slice; wired for config/onboarding only."
+    },
+    "ollama": {
+      "id": "ollama",
+      "label": "Ollama",
+      "kind": "openai-compatible",
+      "baseUrl": "http://localhost:11434/v1",
+      "apiKeyEnv": "",
+      "requiresApiKey": false,
+      "defaultModel": "llama3.1",
+      "docsUrl": "https://ollama.com",
+      "notes": "Local models. No API key required."
+    },
+    "custom": {
+      "id": "custom",
+      "label": "Custom",
+      "kind": "openai-compatible",
+      "baseUrl": "",
+      "apiKeyEnv": "CUSTOM_API_KEY",
+      "requiresApiKey": false,
+      "defaultModel": "",
+      "docsUrl": "",
+      "notes": "Fully user-defined provider. Configure everything during onboarding."
+    }
+  }
+}

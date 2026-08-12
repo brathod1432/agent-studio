@@ -1,0 +1,10 @@
+{
+  "description": "Default application settings. The default provider and model are loaded from here (and the provider catalog), never hardcoded in application logic.",
+  "activeProvider": "nvidia",
+  "defaultModel": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "request": {
+    "timeoutMs": 30000,
+    "maxRetries": 2,
+    "retryBaseDelayMs": 500
+  }
+}

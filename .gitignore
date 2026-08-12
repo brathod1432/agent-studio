@@ -1,0 +1,27 @@
+# ---------------------------------------------------------------------------
+# SECRETS — never commit. These may contain API keys (e.g. NVIDIA_API_KEY).
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets.json
+
+# App-managed private state (sessions, audit, resolved settings). May contain
+# provider references — keep local.
+.agentstudio/
+
+# Node / build
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,45 @@
+{
+  "name": "agent-studio",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Local-first, provider-agnostic AI agent workspace: provider configuration, onboarding, and a conversational agent runtime (engine + clients).",
+  "type": "module",
+  "license": "MIT",
+  "author": "brathod1432",
+  "homepage": "https://github.com/brathod1432/agent-studio#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brathod1432/agent-studio.git"
+  },
+  "bugs": {
+    "url": "https://github.com/brathod1432/agent-studio/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "llm",
+    "nvidia",
+    "openai-compatible",
+    "cli",
+    "local-first"
+  ],
+  "engines": {
+    "node": ">=22.6.0"
+  },
+  "bin": {
+    "agent-studio": "src/clients/cli/index.ts"
+  },
+  "scripts": {
+    "onboard": "node --env-file-if-exists=.env.local src/clients/cli/index.ts onboard",
+    "chat": "node --env-file-if-exists=.env.local src/clients/cli/index.ts chat",
+    "doctor": "node --env-file-if-exists=.env.local src/clients/cli/index.ts doctor",
+    "serve": "node --env-file-if-exists=.env.local src/clients/web/index.ts",
+    "mock": "node tools/mock-provider/server.ts",
+    "test": "node --env-file-if-exists=.env.local --test \"src/**/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.0"
+  }
+}
