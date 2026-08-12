@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -185,6 +185,23 @@ test('a corrupt conversation file is skipped (kept on disk), not silently lost',
     const list = store.list();
     assert.equal(list.length, 1); // the good one is still listed
     assert.ok(existsSync(join(dir, 'deadbeef.json'))); // corrupt file preserved
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('saved conversation files are owner-only (0600) on POSIX', (t) => {
+  if (process.platform === 'win32') {
+    t.skip('chmod bits are not meaningful on Windows');
+    return;
+  }
+  const { store, dataDir } = tempStore();
+  try {
+    const conv = store.create();
+    store.append(conv, { role: 'user', content: 'x' });
+    const path = store.save(conv);
+    const mode = statSync(path).mode & 0o777;
+    assert.equal(mode, 0o600);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

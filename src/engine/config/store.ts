@@ -8,6 +8,7 @@ import { dirname } from 'node:path';
 import { JsonParseError, parseJson } from '../core/jsonFile.ts';
 import { logger } from '../core/logger.ts';
 import { resolvePaths } from '../core/paths.ts';
+import { restrictDir, restrictFile } from '../core/perms.ts';
 import { envRef } from '../core/secrets.ts';
 import { loadCatalog, loadDefaultConfig } from './catalog.ts';
 import type { AppSettings, ProviderCatalog, ProviderConfig, ProviderPreset } from './types.ts';
@@ -125,9 +126,12 @@ function sanitizeForPersistence(settings: AppSettings): AppSettings {
 
 export function saveSettings(settings: AppSettings, opts: StoreOptions = {}): string {
   const path = settingsPath(opts);
-  mkdirSync(dirname(path), { recursive: true });
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true });
   const safe = sanitizeForPersistence(settings);
   writeFileSync(path, JSON.stringify(safe, null, 2) + '\n', 'utf8');
+  restrictDir(dir);
+  restrictFile(path);
   return path;
 }
 

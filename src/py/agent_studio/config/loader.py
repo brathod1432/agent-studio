@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.paths import resolve_paths
+from ..core.perms import restrict_dir, restrict_file
 from .types import (
     AppSettings,
     DefaultConfig,
@@ -209,6 +210,8 @@ def save_settings(settings: AppSettings, data_dir: Path | None = None) -> Path:
     settings_file.write_text(
         json.dumps(settings_to_raw(settings), indent=2) + "\n", encoding="utf-8"
     )
+    restrict_dir(settings_file.parent)
+    restrict_file(settings_file)
     return settings_file
 
 

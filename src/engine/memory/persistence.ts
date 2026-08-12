@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import { logger } from '../core/logger.ts';
 import { resolvePaths } from '../core/paths.ts';
+import { restrictDir, restrictFile } from '../core/perms.ts';
 import { CONVERSATION_SCHEMA_VERSION, type Conversation } from './types.ts';
 
 export interface PersistenceOptions {
@@ -63,6 +64,8 @@ export function writeConversationFile(conversation: Conversation, opts: Persiste
   const tmp = join(dir, `.${safeId(conversation.id)}.${process.pid}.${Date.now()}.tmp`);
   writeFileSync(tmp, JSON.stringify(toWrite, null, 2) + '\n', 'utf8');
   renameSync(tmp, path);
+  restrictDir(dir);
+  restrictFile(path);
   return path;
 }
 

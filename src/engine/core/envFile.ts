@@ -4,6 +4,8 @@
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
+import { restrictFile } from './perms.ts';
+
 /**
  * Insert or update `NAME=value` in a .env file, preserving other lines and
  * comments. Creates the file if missing. Returns nothing that reveals the value.
@@ -24,6 +26,8 @@ export function upsertEnvVar(path: string, name: string, value: string): void {
   // Normalize trailing newline.
   const out = lines.join('\n').replace(/\n*$/, '\n');
   writeFileSync(path, out, { encoding: 'utf8', mode: 0o600 });
+  // Also tighten perms on an existing file (mode above only applies on create).
+  restrictFile(path);
 }
 
 function escapeRegExp(s: string): string {

@@ -75,6 +75,19 @@ class RobustnessTests(unittest.TestCase):
             # Only the final .json remains (no leftover temp files).
             self.assertEqual([f.name for f in files], [f"{conv.id}.json"])
 
+    def test_saved_files_are_owner_only_on_posix(self) -> None:
+        import os
+        import stat
+
+        if os.name != "posix":
+            self.skipTest("chmod bits are not meaningful on Windows")
+        with tempfile.TemporaryDirectory() as d:
+            store = ConversationStore(data_dir=Path(d))
+            conv = store.create()
+            store.append(conv, ChatMessage("user", "x"))
+            path = Path(store.save(conv))
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
+
     def test_corrupt_file_is_surfaced_not_silently_dropped(self) -> None:
         import io
         from contextlib import redirect_stderr

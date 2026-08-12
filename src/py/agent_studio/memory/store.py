@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from ..core.paths import resolve_paths
+from ..core.perms import restrict_dir, restrict_file
 from ..llm.types import ChatMessage
 
 SCHEMA_VERSION = 1
@@ -158,6 +159,8 @@ class ConversationStore:
         tmp = directory / f".{_safe_id(conversation.id)}.{os.getpid()}.tmp"
         tmp.write_text(json.dumps(conversation.to_json_obj(), indent=2) + "\n", encoding="utf-8")
         tmp.replace(path)
+        restrict_dir(directory)
+        restrict_file(path)
         return str(path)
 
     def try_load(self, conv_id: str) -> Conversation | None:
