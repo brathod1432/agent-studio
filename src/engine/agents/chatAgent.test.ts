@@ -190,6 +190,25 @@ test('runStream: a cancelled turn keeps the partial reply and persists it', asyn
   }
 });
 
+test('ephemeral store (--no-save): a full turn runs but nothing is persisted', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-eph-'));
+  try {
+    const store = new ConversationStore({ dataDir, ephemeral: true });
+    const conversation = store.create({ providerId: 'nvidia', model: 'm' });
+    const agent = new ChatAgent({ llm: new FakeLLM('a reply', false), store, conversation, systemPrompt: 'SYS' });
+
+    const out = await agent.run('a sensitive question');
+    assert.equal(out, 'a reply');
+    // In-memory turn happened...
+    assert.equal(conversation.messages.length, 2);
+    // ...but nothing was written to disk.
+    assert.equal(store.list().length, 0);
+    assert.equal(store.tryLoad(conversation.id), undefined);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('runStream: a turn cancelled before any output still persists the question', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-'));
   try {

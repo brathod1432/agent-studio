@@ -176,9 +176,12 @@ async function main(): Promise<void> {
     case 'status':
       runStatus();
       break;
-    case 'chat':
-      await runChat();
+    case 'chat': {
+      const chatArgs = process.argv.slice(3);
+      const ephemeral = chatArgs.includes('--no-save') || chatArgs.includes('--ephemeral');
+      await runChat({ ephemeral });
       break;
+    }
     case 'config':
       await runConfig(process.argv.slice(3));
       break;

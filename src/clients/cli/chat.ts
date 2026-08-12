@@ -84,8 +84,14 @@ function printHistory(conversation: Conversation): void {
   console.log('--- end of history ---\n');
 }
 
-export async function runChat(): Promise<void> {
+export interface RunChatOptions {
+  /** Ephemeral session: nothing is written to disk (--no-save). */
+  ephemeral?: boolean;
+}
+
+export async function runChat(opts: RunChatOptions = {}): Promise<void> {
   printBanner();
+  const ephemeral = Boolean(opts.ephemeral);
 
   // Build the LLM client from the active provider configuration.
   let resolved: ResolvedLLM;
@@ -114,17 +120,21 @@ export async function runChat(): Promise<void> {
   warnIfMissingKey();
 
   console.log(`\nProvider: ${config.label} (${config.id})   Model: ${client.model}`);
+  if (ephemeral) {
+    console.log('Ephemeral session (--no-save): nothing will be written to disk.');
+  }
   console.log('Type a message, or /help for commands.\n');
 
-  const store = new ConversationStore();
+  const store = new ConversationStore({ ephemeral });
   const prompt = createPrompter();
 
   const makeAgent = (conversation: Conversation): ChatAgent =>
     new ChatAgent({ llm: client, store, conversation });
 
   try {
-    // Session selection.
-    const summaries = store.list();
+    // Session selection. Ephemeral sessions always start fresh (resuming a
+    // saved conversation only to discard new turns would be confusing).
+    const summaries = ephemeral ? [] : store.list();
     let conversation: Conversation;
     if (summaries.length > 0) {
       console.log('Existing conversations:');
@@ -295,7 +305,11 @@ export async function runChat(): Promise<void> {
       }
     }
 
-    console.log('\nGoodbye. Your conversation was saved automatically.');
+    console.log(
+      ephemeral
+        ? '\nGoodbye. (Ephemeral session — nothing was saved.)'
+        : '\nGoodbye. Your conversation was saved automatically.',
+    );
   } finally {
     prompt.close();
   }
