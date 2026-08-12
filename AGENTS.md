@@ -78,6 +78,32 @@ supported (line-buffered; `/exit` or EOF ends the session).
 - `Secret` wrapper + `maskSecret` + redacting `Logger` ensure the key is never
   logged, printed in full, or serialized. Always use the engine `logger`.
 
+## Extra CLI commands & flags (both runtimes unless noted)
+- `version` / `--version` — print the version.
+- `privacy` — show where data is stored (data/config dirs, settings, conversation
+  count + size) + guidance.
+- `purge --all | --older-than <days> [--yes]` — delete stored conversations
+  (confirms interactively; refuses in non-interactive mode without `--yes`).
+- `ask --model <id> --temperature <t>` — per-invocation overrides (no global change).
+- `chat|ask --redact-secrets` — scrub secret-looking content before sending/persisting.
+- `chat|ask --allow-any-file` — relax the `@file` safety guards (see below).
+
+## Security posture (user-facing)
+- **`@file` is confined to the workspace root** and refuses sensitive files
+  (`.env*`, `*.pem/*.key`, `id_rsa`, `.ssh/.aws/...` dirs, etc.) by default;
+  blocked refs are reported and never sent. Override explicitly with
+  `--allow-any-file`. (`engine/context/fileContext.ts`, `py .../context.py`.)
+- **Secret redaction:** `redactSecrets`/`redact_secrets` + `--redact-secrets`
+  replace detected secrets with `[redacted:<kind>]` before send/persist. A
+  warning is always shown when a message looks like it contains a secret.
+- **At rest:** conversations + settings + `.env.local` are written owner-only
+  (0600 files / 0700 dirs) on POSIX (best-effort; documented no-op on Windows).
+  Conversation writes are **atomic** (temp file + rename); corrupt files are
+  surfaced, not silently dropped.
+- **Web onboarding** (`serve`) uses a one-time CSRF token (X-CSRF-Token on POST),
+  an Origin allowlist, and restrictive headers (CSP `default-src 'none'`,
+  nosniff, `X-Frame-Options: DENY`, no-referrer) — in addition to loopback-only.
+
 ## Structure
 ```
 config/                     provider presets + defaults (editable, no code changes)
