@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { describeSecretKinds, detectSecrets, looksLikeSecret } from './secretScan.ts';
+import { describeSecretKinds, detectSecrets, looksLikeSecret, redactSecrets } from './secretScan.ts';
 
 test('detectSecrets: flags common credential shapes', () => {
   assert.deepEqual(detectSecrets('my key is nvapi-abcdef0123456789ABCDEF'), ['NVIDIA API key']);
@@ -33,4 +33,12 @@ test('describeSecretKinds: renders a readable list with articles', () => {
     describeSecretKinds(['NVIDIA API key', 'bearer token']),
     'an NVIDIA API key and a bearer token',
   );
+});
+
+test('redactSecrets: masks secret-looking values, leaves prose intact', () => {
+  const redacted = redactSecrets('here is nvapi-ABCDEF0123456789ZZZZ and password = hunter2secret');
+  assert.ok(!redacted.includes('nvapi-ABCDEF0123456789ZZZZ'));
+  assert.ok(!redacted.includes('hunter2secret'));
+  assert.match(redacted, /\[redacted:NVIDIA API key\]/);
+  assert.equal(redactSecrets('just a normal message'), 'just a normal message');
 });

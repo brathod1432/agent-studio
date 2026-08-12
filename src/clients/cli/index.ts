@@ -200,7 +200,8 @@ async function main(): Promise<void> {
       const chatArgs = process.argv.slice(3);
       const ephemeral = chatArgs.includes('--no-save') || chatArgs.includes('--ephemeral');
       const allowAnyFile = chatArgs.includes('--allow-any-file');
-      await runChat({ ephemeral, allowAnyFile });
+      const redactSecrets = chatArgs.includes('--redact-secrets');
+      await runChat({ ephemeral, allowAnyFile, redactSecrets });
       break;
     }
     case 'config':

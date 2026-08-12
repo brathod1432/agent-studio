@@ -28,7 +28,7 @@ from ..config.loader import (
 from ..config.types import AppSettings, ProviderConfig
 from ..context import expand_file_references
 from ..core.paths import resolve_paths
-from ..core.secret_scan import describe_secret_kinds, detect_secrets
+from ..core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from ..core.secrets import load_environment
 from ..factory import create_llm_from_settings
 from ..llm.usage import add_usage, zero_usage
@@ -114,6 +114,11 @@ def cmd_ask(args: argparse.Namespace) -> int:
         return 2
 
     message = _apply_file_context(combined, sys.stderr, allow_any=bool(getattr(args, "allow_any_file", False)))
+    if getattr(args, "redact_secrets", False):
+        scrubbed = redact_secrets(message)
+        if scrubbed != message:
+            print("  (redacted secret-looking content before sending)", file=sys.stderr)
+        message = scrubbed
 
     try:
         resolved = create_llm_from_settings(env)
@@ -401,6 +406,11 @@ def cmd_chat(args: argparse.Namespace) -> int:
             continue
 
         message = _apply_file_context(text, sys.stdout, allow_any=bool(getattr(args, "allow_any_file", False)))
+        if getattr(args, "redact_secrets", False):
+            scrubbed = redact_secrets(message)
+            if scrubbed != message:
+                print("  (redacted secret-looking content)")
+            message = scrubbed
         kinds = detect_secrets(message)
         if kinds:
             print(f"\n\u26a0 This message looks like it contains {describe_secret_kinds(kinds)}.")
@@ -518,6 +528,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Relax @file guards (read outside the workspace / sensitive files)",
     )
+    ask.add_argument(
+        "--redact-secrets",
+        action="store_true",
+        help="Scrub secret-looking content from the message before sending",
+    )
 
     chat = sub.add_parser("chat", help="Interactive conversational agent")
     chat.add_argument("--no-save", action="store_true", help="Ephemeral session (nothing written to disk)")
@@ -525,6 +540,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-any-file",
         action="store_true",
         help="Relax @file guards (read outside the workspace / sensitive files)",
+    )
+    chat.add_argument(
+        "--redact-secrets",
+        action="store_true",
+        help="Scrub secret-looking content from each message before sending/persisting",
     )
 
     cfg = sub.add_parser("config", help="View/change provider and model")

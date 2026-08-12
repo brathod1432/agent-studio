@@ -12,7 +12,7 @@ from agent_studio.config.loader import (
     set_active_provider,
 )
 from agent_studio.context import expand_file_references, extract_file_refs, is_sensitive_path
-from agent_studio.core.secret_scan import describe_secret_kinds, detect_secrets
+from agent_studio.core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from agent_studio.prompts import render_system_prompt, render_template
 
 
@@ -32,6 +32,13 @@ class SecretScanTests(unittest.TestCase):
             describe_secret_kinds(["NVIDIA API key", "bearer token"]),
             "an NVIDIA API key and a bearer token",
         )
+
+    def test_redact_secrets_masks_values(self) -> None:
+        out = redact_secrets("key nvapi-ABCDEF0123456789ZZZZ and password = hunter2secret")
+        self.assertNotIn("nvapi-ABCDEF0123456789ZZZZ", out)
+        self.assertNotIn("hunter2secret", out)
+        self.assertIn("[redacted:NVIDIA API key]", out)
+        self.assertEqual(redact_secrets("just a normal message"), "just a normal message")
 
 
 class FileContextTests(unittest.TestCase):

@@ -43,6 +43,15 @@ def looks_like_secret(text: str) -> bool:
     return len(detect_secrets(text)) > 0
 
 
+def redact_secrets(text: str) -> str:
+    """Replace secret-looking substrings with a ``[redacted:<kind>]`` marker so a
+    message can be sent/persisted without exposing the raw value."""
+    out = text
+    for kind, pattern in _PATTERNS:
+        out = pattern.sub(f"[redacted:{kind}]", out)
+    return out
+
+
 def _article_for(phrase: str) -> str:
     first_word = phrase.strip().split()[0] if phrase.strip() else ""
     first = first_word[0] if first_word else ""

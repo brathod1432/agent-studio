@@ -28,7 +28,7 @@ export { upsertEnvVar } from './core/envFile.ts';
 export { stripBom, parseJson, readJsonFile, JsonParseError } from './core/jsonFile.ts';
 export { logger, Logger, type LogLevel } from './core/logger.ts';
 export { redact, registerSecretValue, scrubString } from './core/redact.ts';
-export { detectSecrets, looksLikeSecret, describeSecretKinds } from './core/secretScan.ts';
+export { detectSecrets, looksLikeSecret, describeSecretKinds, redactSecrets } from './core/secretScan.ts';
 export {
   expandFileReferences,
   extractFileRefs,

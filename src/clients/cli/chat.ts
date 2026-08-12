@@ -20,6 +20,7 @@ import {
   loadCatalog,
   loadSettings,
   ProviderError,
+  redactSecrets,
   resolveActiveProvider,
   resolveSecret,
   setActiveModel,
@@ -111,6 +112,8 @@ export interface RunChatOptions {
   ephemeral?: boolean;
   /** Relax @file safety guards (read outside the workspace / sensitive files). */
   allowAnyFile?: boolean;
+  /** Redact secret-looking content from each message before sending/persisting. */
+  redactSecrets?: boolean;
 }
 
 export async function runChat(opts: RunChatOptions = {}): Promise<void> {
@@ -328,9 +331,14 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
       }
 
       // Expand @file references into the message before sending/persisting.
-      const message = applyFileContext(input, (line) => console.log(line), {
+      let message = applyFileContext(input, (line) => console.log(line), {
         allowAny: opts.allowAnyFile,
       });
+      if (opts.redactSecrets) {
+        const scrubbed = redactSecrets(message);
+        if (scrubbed !== message) console.log('  (redacted secret-looking content)');
+        message = scrubbed;
+      }
 
       // Privacy guard: if the message (including any included files) looks like
       // it contains a secret, warn before it is sent and stored in plaintext.

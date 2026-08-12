@@ -45,6 +45,19 @@ export function looksLikeSecret(text: string): boolean {
   return detectSecrets(text).length > 0;
 }
 
+/**
+ * Replace secret-looking substrings with a `[redacted:<kind>]` marker so a
+ * message can be sent/persisted without exposing the raw value.
+ */
+export function redactSecrets(text: string): string {
+  let out = text;
+  for (const p of PATTERNS) {
+    const flags = p.re.flags.includes('g') ? p.re.flags : p.re.flags + 'g';
+    out = out.replace(new RegExp(p.re.source, flags), `[redacted:${p.kind}]`);
+  }
+  return out;
+}
+
 // Consonant letters whose spoken name begins with a vowel sound (so an
 // all-caps acronym starting with one takes "an", e.g. "an NVIDIA key").
 const VOWEL_SOUND_LETTERS = 'AEFHILMNORSX';

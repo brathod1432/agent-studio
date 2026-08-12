@@ -16,6 +16,7 @@ import {
   createLLMClientFromSettings,
   formatError,
   ProviderError,
+  redactSecrets,
   type ResolvedLLM,
 } from '../../engine/index.ts';
 import { applyFileContext } from './context.ts';
@@ -26,12 +27,14 @@ export interface AskArgs {
   model?: string;
   temperature?: number;
   allowAnyFile: boolean;
+  redact: boolean;
 }
 
 /** Parse `ask` argv (everything after the command). Pure + testable. */
 export function parseAskArgs(argv: string[]): AskArgs {
   let json = false;
   let allowAnyFile = false;
+  let redact = false;
   let model: string | undefined;
   let temperature: number | undefined;
   const parts: string[] = [];
@@ -39,6 +42,7 @@ export function parseAskArgs(argv: string[]): AskArgs {
     const a = argv[i];
     if (a === '--json') json = true;
     else if (a === '--allow-any-file') allowAnyFile = true;
+    else if (a === '--redact-secrets') redact = true;
     else if (a === '-m' || a === '--message') continue; // optional prompt marker
     else if (a === '--model') model = argv[++i];
     else if (a?.startsWith('--model=')) model = a.slice('--model='.length);
@@ -47,7 +51,7 @@ export function parseAskArgs(argv: string[]): AskArgs {
     else parts.push(a);
   }
   if (temperature != null && Number.isNaN(temperature)) temperature = undefined;
-  return { json, prompt: parts.join(' ').trim(), model, temperature, allowAnyFile };
+  return { json, prompt: parts.join(' ').trim(), model, temperature, allowAnyFile, redact };
 }
 
 /**
@@ -69,7 +73,7 @@ async function readStdin(): Promise<string> {
 }
 
 export async function runAsk(argv: string[]): Promise<void> {
-  const { json, prompt: promptArg, model, temperature, allowAnyFile } = parseAskArgs(argv);
+  const { json, prompt: promptArg, model, temperature, allowAnyFile, redact } = parseAskArgs(argv);
   const stdin = await readStdin();
   const combined = combineInput(promptArg, stdin);
 
@@ -80,7 +84,12 @@ export async function runAsk(argv: string[]): Promise<void> {
   }
 
   // Expand @file references; notes go to stderr so stdout stays answer-only.
-  const input = applyFileContext(combined, (line) => console.error(line), { allowAny: allowAnyFile });
+  let input = applyFileContext(combined, (line) => console.error(line), { allowAny: allowAnyFile });
+  if (redact) {
+    const scrubbed = redactSecrets(input);
+    if (scrubbed !== input) console.error('  (redacted secret-looking content before sending)');
+    input = scrubbed;
+  }
 
   let resolved: ResolvedLLM;
   try {
