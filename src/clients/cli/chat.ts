@@ -10,6 +10,8 @@ import {
   ChatAgent,
   ConversationStore,
   createLLMClientFromSettings,
+  describeSecretKinds,
+  detectSecrets,
   formatError,
   loadCatalog,
   loadSettings,
@@ -235,6 +237,23 @@ export async function runChat(): Promise<void> {
         }
         console.log(`Unknown command: /${cmd}. Type /help.`);
         continue;
+      }
+
+      // Privacy guard: if the message looks like it contains a secret, warn
+      // before it is sent to the provider and written to disk in plaintext.
+      const kinds = detectSecrets(input);
+      if (kinds.length > 0) {
+        console.log(`\n⚠ This message looks like it contains ${describeSecretKinds(kinds)}.`);
+        console.log('  It would be sent to the provider and saved to this conversation in plaintext.');
+        if (prompt.isInteractive) {
+          const proceed = await prompt.confirm('  Send and store it anyway?', false);
+          if (!proceed) {
+            console.log('  Skipped — nothing was sent or saved.\n');
+            continue;
+          }
+        } else {
+          console.log('  (continuing; run interactively to be prompted before sending)\n');
+        }
       }
 
       // Regular message — stream the assistant reply and auto-save.

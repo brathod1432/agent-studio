@@ -18,6 +18,8 @@ export interface Prompter {
   readLine(query: string): Promise<string | null>;
   /** True once stdin has reached EOF / the interface has closed. */
   readonly isClosed: boolean;
+  /** True when attached to a real interactive TTY (not piped/scripted input). */
+  readonly isInteractive: boolean;
   /**
    * Register a handler for Ctrl+C (SIGINT). Returns an unsubscribe function.
    * While at least one handler is registered, the default "terminate the
@@ -128,6 +130,9 @@ export function createPrompter(): Prompter {
     readLine,
     get isClosed() {
       return closed;
+    },
+    get isInteractive() {
+      return interactive;
     },
     onSigint,
     close: () => rl.close(),
