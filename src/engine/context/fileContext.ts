@@ -7,7 +7,7 @@
 // the real filesystem. Missing/oversized files never throw — they are reported.
 
 import { closeSync, openSync, readSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, isAbsolute, relative, resolve } from 'node:path';
 
 /** Per-file read result. */
 export interface FileReadResult {
@@ -26,6 +26,8 @@ export interface FileRef {
   bytes?: number;
   truncated?: boolean;
   error?: string;
+  /** True when the file was refused by a safety guard (outside root / sensitive). */
+  blocked?: boolean;
 }
 
 export interface ExpandResult {
@@ -41,12 +43,37 @@ export interface ExpandOptions {
   maxBytes?: number;
   /** Injectable reader (defaults to a size-capped filesystem reader). */
   read?: FileReader;
+  /** Root the references are confined to (default: cwd). */
+  workspaceRoot?: string;
+  /** Allow reading files outside the workspace root (default false — safe). */
+  allowOutside?: boolean;
+  /** Allow reading sensitive-looking files (default false — safe). */
+  allowSensitive?: boolean;
 }
 
 const DEFAULT_MAX_BYTES = 100 * 1024;
 
 // Matches @token or @"quoted token", only when @ starts a word (not mid-email).
 const REF_RE = /(?:^|\s)@(?:"([^"]+)"|([^\s]+))/g;
+
+// Files/paths that could leak credentials if sent to a provider. Matched on the
+// resolved path (case-insensitive) so e.g. @../.env or @~/.ssh/id_rsa are caught.
+const SENSITIVE_BASENAMES =
+  /^(\.env(\..+)?|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.htpasswd|credentials|id_rsa|id_dsa|id_ecdsa|id_ed25519)$/i;
+const SENSITIVE_EXT = /\.(pem|key|ppk|pfx|p12|keystore|jks)$/i;
+const SENSITIVE_DIR = /[\\/](\.ssh|\.aws|\.gnupg|\.gcloud|\.azure|\.kube)[\\/]/i;
+
+/** Whether a resolved path looks like it may hold secrets/credentials. */
+export function isSensitivePath(absPath: string): boolean {
+  const base = basename(absPath);
+  return SENSITIVE_BASENAMES.test(base) || SENSITIVE_EXT.test(base) || SENSITIVE_DIR.test(absPath);
+}
+
+/** Whether `absPath` is inside `root`. */
+function isInside(root: string, absPath: string): boolean {
+  const rel = relative(root, absPath);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+}
 
 function makeCappedReader(maxBytes: number): FileReader {
   return (absPath: string): FileReadResult => {
@@ -83,6 +110,7 @@ export function extractFileRefs(input: string): string[] {
  */
 export function expandFileReferences(input: string, opts: ExpandOptions = {}): ExpandResult {
   const cwd = opts.cwd ?? process.cwd();
+  const root = resolve(opts.workspaceRoot ?? cwd);
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
   const read = opts.read ?? makeCappedReader(maxBytes);
 
@@ -92,7 +120,18 @@ export function expandFileReferences(input: string, opts: ExpandOptions = {}): E
   const refs: FileRef[] = [];
   const blocks: string[] = [];
   for (const ref of references) {
-    const path = isAbsolute(ref) ? ref : resolve(cwd, ref);
+    const path = isAbsolute(ref) ? resolve(ref) : resolve(cwd, ref);
+
+    // Safety guards (default-deny). Opt-in flags relax them explicitly.
+    if (!opts.allowOutside && !isInside(root, path)) {
+      refs.push({ ref, path, ok: false, blocked: true, error: 'outside the workspace (use --allow-any-file to override)' });
+      continue;
+    }
+    if (!opts.allowSensitive && isSensitivePath(path)) {
+      refs.push({ ref, path, ok: false, blocked: true, error: 'looks sensitive (credentials/keys); refused (use --allow-any-file to override)' });
+      continue;
+    }
+
     try {
       const { content, truncated, bytes } = read(path);
       refs.push({ ref, path, ok: true, bytes, truncated });

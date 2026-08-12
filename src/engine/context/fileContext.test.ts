@@ -4,7 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { expandFileReferences, extractFileRefs, type FileReader } from './fileContext.ts';
+import { expandFileReferences, extractFileRefs, isSensitivePath, type FileReader } from './fileContext.ts';
+
+const neverRead: FileReader = () => {
+  throw new Error('reader should not be called for a blocked file');
+};
 
 test('extractFileRefs: finds @tokens (incl. quoted) and ignores emails', () => {
   assert.deepEqual(extractFileRefs('explain @src/a.ts and @b.md'), ['src/a.ts', 'b.md']);
@@ -49,6 +53,49 @@ test('expandFileReferences: marks truncation when the reader caps the file', () 
   const { text, refs } = expandFileReferences('@big.log', { read, maxBytes: 7 });
   assert.equal(refs[0]!.truncated, true);
   assert.match(text, /truncated to 7 bytes/);
+});
+
+test('isSensitivePath: flags credentials/keys and ssh/aws dirs', () => {
+  assert.equal(isSensitivePath('/proj/.env'), true);
+  assert.equal(isSensitivePath('/proj/.env.local'), true);
+  assert.equal(isSensitivePath('/home/u/.ssh/id_rsa'), true);
+  assert.equal(isSensitivePath('/home/u/.aws/credentials'), true);
+  assert.equal(isSensitivePath('/proj/server.pem'), true);
+  assert.equal(isSensitivePath('/proj/src/app.ts'), false);
+});
+
+test('@file safety: refuses files outside the workspace root (default deny)', () => {
+  const res = expandFileReferences('read @../secret.txt', {
+    cwd: '/work/proj',
+    workspaceRoot: '/work/proj',
+    read: neverRead,
+  });
+  assert.equal(res.refs[0]!.ok, false);
+  assert.equal(res.refs[0]!.blocked, true);
+  assert.match(res.refs[0]!.error!, /outside the workspace/);
+  assert.equal(res.text, 'read @../secret.txt'); // nothing appended
+});
+
+test('@file safety: refuses sensitive files even inside the workspace', () => {
+  const res = expandFileReferences('read @.env', {
+    cwd: '/work/proj',
+    workspaceRoot: '/work/proj',
+    read: neverRead,
+  });
+  assert.equal(res.refs[0]!.blocked, true);
+  assert.match(res.refs[0]!.error!, /sensitive/);
+});
+
+test('@file safety: allowOutside/allowSensitive opt-ins relax the guards', () => {
+  const read: FileReader = () => ({ content: 'SECRET', truncated: false, bytes: 6 });
+  const res = expandFileReferences('read @.env', {
+    cwd: '/work/proj',
+    workspaceRoot: '/work/proj',
+    allowSensitive: true,
+    read,
+  });
+  assert.equal(res.refs[0]!.ok, true);
+  assert.match(res.text, /SECRET/);
 });
 
 test('expandFileReferences: reads a real file relative to cwd (size-capped)', () => {

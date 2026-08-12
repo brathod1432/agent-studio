@@ -49,13 +49,15 @@ def _stdout(text: str) -> None:
     sys.stdout.write(text)
 
 
-def _apply_file_context(text: str, report_to: TextIO) -> str:
-    result = expand_file_references(text)
+def _apply_file_context(text: str, report_to: TextIO, allow_any: bool = False) -> str:
+    result = expand_file_references(text, allow_outside=allow_any, allow_sensitive=allow_any)
     for ref in result.refs:
         if ref.ok:
             kb = f" ({max(1, round((ref.bytes or 0) / 1024))} KB)" if ref.bytes else ""
             trunc = " [truncated]" if ref.truncated else ""
             print(f"  + included @{ref.ref}{kb}{trunc}", file=report_to)
+        elif ref.blocked:
+            print(f"  \u2a2f blocked @{ref.ref}: {ref.error}", file=report_to)
         else:
             print(f"  ! could not read @{ref.ref}: {ref.error}", file=report_to)
     return result.text
@@ -111,7 +113,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print('Usage: agent-studio-py ask [--json] "your question"  (or pipe input)', file=sys.stderr)
         return 2
 
-    message = _apply_file_context(combined, sys.stderr)
+    message = _apply_file_context(combined, sys.stderr, allow_any=bool(getattr(args, "allow_any_file", False)))
 
     try:
         resolved = create_llm_from_settings(env)
@@ -398,7 +400,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
             print(f"Unknown command: /{cmd}. Type /help.")
             continue
 
-        message = _apply_file_context(text, sys.stdout)
+        message = _apply_file_context(text, sys.stdout, allow_any=bool(getattr(args, "allow_any_file", False)))
         kinds = detect_secrets(message)
         if kinds:
             print(f"\n\u26a0 This message looks like it contains {describe_secret_kinds(kinds)}.")
@@ -511,9 +513,19 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--json", action="store_true", help="Emit a JSON result")
     ask.add_argument("--model", help="Override the model for this call only")
     ask.add_argument("--temperature", type=float, help="Override the temperature for this call only")
+    ask.add_argument(
+        "--allow-any-file",
+        action="store_true",
+        help="Relax @file guards (read outside the workspace / sensitive files)",
+    )
 
     chat = sub.add_parser("chat", help="Interactive conversational agent")
     chat.add_argument("--no-save", action="store_true", help="Ephemeral session (nothing written to disk)")
+    chat.add_argument(
+        "--allow-any-file",
+        action="store_true",
+        help="Relax @file guards (read outside the workspace / sensitive files)",
+    )
 
     cfg = sub.add_parser("config", help="View/change provider and model")
     cfg.add_argument("subcommand", nargs="?", choices=["show", "model", "provider"])

@@ -25,17 +25,20 @@ export interface AskArgs {
   prompt: string;
   model?: string;
   temperature?: number;
+  allowAnyFile: boolean;
 }
 
 /** Parse `ask` argv (everything after the command). Pure + testable. */
 export function parseAskArgs(argv: string[]): AskArgs {
   let json = false;
+  let allowAnyFile = false;
   let model: string | undefined;
   let temperature: number | undefined;
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') json = true;
+    else if (a === '--allow-any-file') allowAnyFile = true;
     else if (a === '-m' || a === '--message') continue; // optional prompt marker
     else if (a === '--model') model = argv[++i];
     else if (a?.startsWith('--model=')) model = a.slice('--model='.length);
@@ -44,7 +47,7 @@ export function parseAskArgs(argv: string[]): AskArgs {
     else parts.push(a);
   }
   if (temperature != null && Number.isNaN(temperature)) temperature = undefined;
-  return { json, prompt: parts.join(' ').trim(), model, temperature };
+  return { json, prompt: parts.join(' ').trim(), model, temperature, allowAnyFile };
 }
 
 /**
@@ -66,18 +69,18 @@ async function readStdin(): Promise<string> {
 }
 
 export async function runAsk(argv: string[]): Promise<void> {
-  const { json, prompt: promptArg, model, temperature } = parseAskArgs(argv);
+  const { json, prompt: promptArg, model, temperature, allowAnyFile } = parseAskArgs(argv);
   const stdin = await readStdin();
   const combined = combineInput(promptArg, stdin);
 
   if (!combined) {
-    console.error('Usage: agent-studio ask [--json] "your question"   (or pipe input via stdin)');
+    console.error('Usage: agent-studio ask [--json] [--model M] [--temperature T] "your question"   (or pipe input)');
     process.exitCode = 2;
     return;
   }
 
   // Expand @file references; notes go to stderr so stdout stays answer-only.
-  const input = applyFileContext(combined, (line) => console.error(line));
+  const input = applyFileContext(combined, (line) => console.error(line), { allowAny: allowAnyFile });
 
   let resolved: ResolvedLLM;
   try {

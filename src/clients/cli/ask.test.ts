@@ -9,6 +9,7 @@ test('parseAskArgs: extracts --json and joins the remaining prompt', () => {
     prompt: 'hello world',
     model: undefined,
     temperature: undefined,
+    allowAnyFile: false,
   });
   assert.equal(parseAskArgs(['--json', 'why', 'sky', 'blue']).json, true);
   assert.equal(parseAskArgs(['--json', 'why', 'sky', 'blue']).prompt, 'why sky blue');

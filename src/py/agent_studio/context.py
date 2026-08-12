@@ -18,6 +18,33 @@ DEFAULT_MAX_BYTES = 100 * 1024
 # reader(abs_path) -> (content, truncated, size_bytes)
 FileReader = Callable[[str], tuple[str, bool, int]]
 
+# Files/paths that could leak credentials if sent to a provider.
+_SENSITIVE_BASENAMES = re.compile(
+    r"^(\.env(\..+)?|\.npmrc|\.pypirc|\.netrc|\.git-credentials|\.htpasswd|credentials"
+    r"|id_rsa|id_dsa|id_ecdsa|id_ed25519)$",
+    re.IGNORECASE,
+)
+_SENSITIVE_EXT = re.compile(r"\.(pem|key|ppk|pfx|p12|keystore|jks)$", re.IGNORECASE)
+_SENSITIVE_DIR = re.compile(r"[\\/](\.ssh|\.aws|\.gnupg|\.gcloud|\.azure|\.kube)[\\/]", re.IGNORECASE)
+
+
+def is_sensitive_path(abs_path: str) -> bool:
+    """Whether a resolved path looks like it may hold secrets/credentials."""
+    base = Path(abs_path).name
+    return bool(
+        _SENSITIVE_BASENAMES.match(base)
+        or _SENSITIVE_EXT.search(base)
+        or _SENSITIVE_DIR.search(abs_path)
+    )
+
+
+def _is_inside(root: Path, target: Path) -> bool:
+    try:
+        target.relative_to(root)
+        return True
+    except ValueError:
+        return False
+
 
 @dataclass
 class FileRef:
@@ -27,6 +54,7 @@ class FileRef:
     bytes: int | None = None
     truncated: bool = False
     error: str | None = None
+    blocked: bool = False
 
 
 @dataclass
@@ -58,8 +86,12 @@ def expand_file_references(
     cwd: Path | None = None,
     max_bytes: int = DEFAULT_MAX_BYTES,
     read: FileReader | None = None,
+    workspace_root: Path | None = None,
+    allow_outside: bool = False,
+    allow_sensitive: bool = False,
 ) -> ExpandResult:
     cwd = cwd or Path.cwd()
+    root = (workspace_root or cwd).resolve()
     reader = read or _capped_reader(max_bytes)
     references = extract_file_refs(text)
     if not references:
@@ -68,7 +100,19 @@ def expand_file_references(
     refs: list[FileRef] = []
     blocks: list[str] = []
     for ref in references:
-        path = ref if Path(ref).is_absolute() else str((cwd / ref).resolve())
+        resolved = (Path(ref) if Path(ref).is_absolute() else cwd / ref).resolve()
+        path = str(resolved)
+
+        # Safety guards (default-deny). Opt-in flags relax them explicitly.
+        if not allow_outside and not _is_inside(root, resolved):
+            reason = "outside the workspace (use --allow-any-file to override)"
+            refs.append(FileRef(ref, path, ok=False, blocked=True, error=reason))
+            continue
+        if not allow_sensitive and is_sensitive_path(path):
+            reason = "looks sensitive (credentials/keys); refused (use --allow-any-file to override)"
+            refs.append(FileRef(ref, path, ok=False, blocked=True, error=reason))
+            continue
+
         try:
             content, truncated, size = reader(path)
             refs.append(FileRef(ref=ref, path=path, ok=True, bytes=size, truncated=truncated))

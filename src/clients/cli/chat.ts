@@ -109,6 +109,8 @@ function printHistory(conversation: Conversation): void {
 export interface RunChatOptions {
   /** Ephemeral session: nothing is written to disk (--no-save). */
   ephemeral?: boolean;
+  /** Relax @file safety guards (read outside the workspace / sensitive files). */
+  allowAnyFile?: boolean;
 }
 
 export async function runChat(opts: RunChatOptions = {}): Promise<void> {
@@ -326,7 +328,9 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
       }
 
       // Expand @file references into the message before sending/persisting.
-      const message = applyFileContext(input, (line) => console.log(line));
+      const message = applyFileContext(input, (line) => console.log(line), {
+        allowAny: opts.allowAnyFile,
+      });
 
       // Privacy guard: if the message (including any included files) looks like
       // it contains a secret, warn before it is sent and stored in plaintext.
