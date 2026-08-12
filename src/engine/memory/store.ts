@@ -12,7 +12,12 @@ import {
   writeConversationFile,
   type PersistenceOptions,
 } from './persistence.ts';
-import { CONVERSATION_SCHEMA_VERSION, type Conversation, type ConversationSummary } from './types.ts';
+import {
+  CONVERSATION_SCHEMA_VERSION,
+  type Conversation,
+  type ConversationSearchResult,
+  type ConversationSummary,
+} from './types.ts';
 
 const DEFAULT_TITLE = 'New conversation';
 
@@ -96,7 +101,50 @@ export class ConversationStore {
     return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  /** Rename a conversation and persist. Throws if it does not exist. */
+  rename(id: string, title: string): Conversation {
+    const clean = title.trim();
+    if (!clean) throw new Error('A non-empty title is required.');
+    const conv = this.load(id);
+    conv.title = clean;
+    this.save(conv);
+    return conv;
+  }
+
+  /** Case-insensitive search over titles and message contents. */
+  search(query: string): ConversationSearchResult[] {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    const results: ConversationSearchResult[] = [];
+    for (const id of listConversationIds(this.#opts)) {
+      const conv = readConversationFile(id, this.#opts);
+      if (!conv) continue;
+      const titleMatch = conv.title.toLowerCase().includes(q);
+      const msg = conv.messages.find((m) => m.content.toLowerCase().includes(q));
+      if (!titleMatch && !msg) continue;
+      results.push({
+        id: conv.id,
+        title: conv.title,
+        updatedAt: conv.updatedAt,
+        messageCount: conv.messages.length,
+        matchedIn: titleMatch ? 'title' : 'message',
+        snippet: msg ? makeSnippet(msg.content, q) : undefined,
+      });
+    }
+    return results.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
   delete(id: string): boolean {
     return deleteConversationFile(id, this.#opts);
   }
+}
+
+/** Build a short excerpt around the first occurrence of `q` (lowercased). */
+function makeSnippet(content: string, q: string, radius = 30): string {
+  const idx = content.toLowerCase().indexOf(q);
+  if (idx === -1) return content.slice(0, radius * 2).replace(/\s+/g, ' ').trim();
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(content.length, idx + q.length + radius);
+  const core = content.slice(start, end).replace(/\s+/g, ' ').trim();
+  return `${start > 0 ? '…' : ''}${core}${end < content.length ? '…' : ''}`;
 }

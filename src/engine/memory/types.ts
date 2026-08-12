@@ -23,3 +23,10 @@ export interface ConversationSummary {
   updatedAt: string;
   messageCount: number;
 }
+
+export interface ConversationSearchResult extends ConversationSummary {
+  /** Where the query matched. */
+  matchedIn: 'title' | 'message';
+  /** A short excerpt around the first message match (absent for title-only matches). */
+  snippet?: string;
+}

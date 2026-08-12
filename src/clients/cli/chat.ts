@@ -5,11 +5,15 @@
 // Responses stream live when the provider supports it; memory is auto-saved
 // after every assistant reply.
 
+import { writeFileSync } from 'node:fs';
+
 import {
   addUsage,
   ChatAgent,
   ConversationStore,
+  conversationToMarkdown,
   createLLMClientFromSettings,
+  defaultExportFilename,
   describeSecretKinds,
   detectSecrets,
   formatError,
@@ -22,6 +26,7 @@ import {
   setActiveProvider,
   zeroUsage,
   type Conversation,
+  type ConversationSearchResult,
   type ConversationSummary,
   type ResolvedLLM,
   type TokenUsage,
@@ -36,6 +41,10 @@ const HELP = [
   '  /new       Start a new conversation',
   '  /list      List saved conversations',
   '  /resume    Resume a saved conversation',
+  '  /rename    Rename the current conversation (/rename <new title>)',
+  '  /delete    Delete a conversation (/delete, or /delete <id>)',
+  '  /search    Search saved conversations (/search <query>)',
+  '  /export    Export the current conversation to Markdown (/export [path])',
   '  /model     Change the model (pick from the live list, or /model <id>)',
   '  /provider  Switch provider (/provider, or /provider <id>)',
   '  /exit      Quit',
@@ -71,6 +80,19 @@ function printSummaries(summaries: ConversationSummary[]): void {
   summaries.forEach((s, i) => {
     console.log(`  ${i + 1}. ${s.title}  ·  ${s.messageCount} msgs  ·  ${new Date(s.updatedAt).toLocaleString()}`);
     console.log(`     id: ${s.id}`);
+  });
+}
+
+function printSearchResults(results: ConversationSearchResult[]): void {
+  if (results.length === 0) {
+    console.log('  (no matches)');
+    return;
+  }
+  results.forEach((r, i) => {
+    console.log(`  ${i + 1}. ${r.title}  ·  ${r.messageCount} msgs  ·  ${new Date(r.updatedAt).toLocaleString()}`);
+    if (r.matchedIn === 'message' && r.snippet) console.log(`     match: "${r.snippet}"`);
+    else console.log('     match: title');
+    console.log(`     id: ${r.id}`);
   });
 }
 
@@ -205,6 +227,56 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
           conversation = picked;
           agent = makeAgent(conversation);
           printHistory(conversation);
+          continue;
+        }
+        if (cmd === 'rename') {
+          const title = rest.join(' ').trim();
+          if (!title) {
+            console.log('Usage: /rename <new title>\n');
+            continue;
+          }
+          conversation.title = title;
+          store.save(conversation);
+          console.log(`Renamed to "${title}".${ephemeral ? ' (ephemeral — not persisted)' : ''}\n`);
+          continue;
+        }
+        if (cmd === 'delete') {
+          const target = rest.join(' ').trim() || conversation.id;
+          if (prompt.isInteractive) {
+            const ok = await prompt.confirm(`Delete conversation ${target}?`, false);
+            if (!ok) {
+              console.log('Not deleted.\n');
+              continue;
+            }
+          }
+          const deleted = store.delete(target);
+          console.log(deleted ? 'Deleted.' : 'No matching conversation.');
+          if (deleted && target === conversation.id) {
+            conversation = store.create({ providerId: config.id, model: client.model });
+            agent = makeAgent(conversation);
+            console.log('Started a new conversation.');
+          }
+          console.log('');
+          continue;
+        }
+        if (cmd === 'search') {
+          const query = rest.join(' ').trim();
+          if (!query) {
+            console.log('Usage: /search <query>\n');
+            continue;
+          }
+          printSearchResults(store.search(query));
+          continue;
+        }
+        if (cmd === 'export') {
+          const md = conversationToMarkdown(conversation);
+          const path = rest.join(' ').trim() || defaultExportFilename(conversation);
+          try {
+            writeFileSync(path, md, 'utf8');
+            console.log(`Exported to ${path}\n`);
+          } catch (err) {
+            console.log(`Could not write "${path}": ${err instanceof Error ? err.message : String(err)}\n`);
+          }
           continue;
         }
         if (cmd === 'model') {

@@ -106,7 +106,9 @@ export {
   CONVERSATION_SCHEMA_VERSION,
   type Conversation,
   type ConversationSummary,
+  type ConversationSearchResult,
 } from './memory/types.ts';
+export { conversationToMarkdown, defaultExportFilename } from './memory/export.ts';
 export {
   conversationsDir,
   conversationPath,

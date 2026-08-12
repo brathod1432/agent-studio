@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
+import { conversationToMarkdown, defaultExportFilename } from './export.ts';
 import { conversationsDir } from './persistence.ts';
 import { ConversationStore, deriveTitle } from './store.ts';
 
@@ -91,6 +92,69 @@ test('load throws for a missing conversation; delete removes the file', () => {
     store.save(conv);
     assert.equal(store.delete(conv.id), true);
     assert.equal(store.tryLoad(conv.id), undefined);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('rename: updates the title and persists it', () => {
+  const { store, dataDir } = tempStore();
+  try {
+    const conv = store.create();
+    store.append(conv, { role: 'user', content: 'hello' });
+    store.save(conv);
+    const renamed = store.rename(conv.id, '  My important chat  ');
+    assert.equal(renamed.title, 'My important chat');
+    assert.equal(store.load(conv.id).title, 'My important chat');
+    assert.throws(() => store.rename(conv.id, '   '), /non-empty title/i);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('search: matches titles and message contents (case-insensitive) with a snippet', () => {
+  const { store, dataDir } = tempStore();
+  try {
+    const a = store.create({ title: 'Deploy runbook' });
+    store.append(a, { role: 'user', content: 'How do I roll back a Kubernetes deployment?' });
+    store.save(a);
+    const b = store.create({ title: 'Cooking' });
+    store.append(b, { role: 'user', content: 'Best pasta recipe' });
+    store.save(b);
+
+    // Matches a message body, case-insensitively, and returns a snippet.
+    const byMsg = store.search('kubernetes');
+    assert.equal(byMsg.length, 1);
+    assert.equal(byMsg[0]!.id, a.id);
+    assert.equal(byMsg[0]!.matchedIn, 'message');
+    assert.match(byMsg[0]!.snippet!, /Kubernetes/);
+
+    // Matches a title.
+    const byTitle = store.search('cooking');
+    assert.equal(byTitle.length, 1);
+    assert.equal(byTitle[0]!.matchedIn, 'title');
+
+    // Empty query returns nothing.
+    assert.deepEqual(store.search('   '), []);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('conversationToMarkdown: renders title, metadata, and role headings', () => {
+  const { store, dataDir } = tempStore();
+  try {
+    const conv = store.create({ providerId: 'nvidia', model: 'test-model', title: 'Chat A' });
+    store.append(conv, { role: 'user', content: 'ping' });
+    store.append(conv, { role: 'assistant', content: 'pong' });
+    const md = conversationToMarkdown(conv);
+    assert.match(md, /^# Chat A/);
+    assert.match(md, /- Model: test-model/);
+    assert.match(md, /### You\n\nping/);
+    assert.match(md, /### Assistant\n\npong/);
+
+    const name = defaultExportFilename(conv);
+    assert.match(name, /^chat-a-[0-9a-f]{8}\.md$/);
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }
