@@ -180,6 +180,80 @@ def _request_to_raw(req: RequestSettings) -> dict[str, Any]:
     }
 
 
+def _provider_to_raw(cfg: ProviderConfig) -> dict[str, Any]:
+    # Only non-secret fields are persisted (apiKeyRef, never a key value).
+    return {
+        "id": cfg.id,
+        "label": cfg.label,
+        "kind": cfg.kind,
+        "baseUrl": cfg.base_url,
+        "apiKeyRef": cfg.api_key_ref,
+        "model": cfg.model,
+    }
+
+
+def settings_to_raw(settings: AppSettings) -> dict[str, Any]:
+    return {
+        "activeProvider": settings.active_provider,
+        "defaultModel": settings.default_model,
+        "providers": {pid: _provider_to_raw(p) for pid, p in settings.providers.items()},
+        "request": _request_to_raw(settings.request),
+        "maxContextTokens": settings.max_context_tokens,
+    }
+
+
+def save_settings(settings: AppSettings, data_dir: Path | None = None) -> Path:
+    settings_file = (data_dir / "settings.json") if data_dir else resolve_paths().settings_file
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    settings_file.write_text(
+        json.dumps(settings_to_raw(settings), indent=2) + "\n", encoding="utf-8"
+    )
+    return settings_file
+
+
+def set_active_model(model: str, data_dir: Path | None = None, config_dir: Path | None = None) -> AppSettings:
+    clean = model.strip()
+    if not clean:
+        raise ValueError("A model id is required.")
+    catalog = load_catalog(config_dir)
+    settings = load_settings(config_dir=config_dir, data_dir=data_dir, warn=False)
+    pid = settings.active_provider
+    if not pid:
+        raise ValueError("No active provider is configured. Run onboarding first.")
+    if pid in settings.providers:
+        settings.providers[pid].model = clean
+    elif pid in catalog.providers:
+        settings.providers[pid] = provider_config_from_preset(catalog.providers[pid], clean)
+    else:
+        raise ValueError(f'Unknown provider "{pid}".')
+    save_settings(settings, data_dir)
+    return settings
+
+
+def set_active_provider(
+    provider_id: str,
+    model: str | None = None,
+    data_dir: Path | None = None,
+    config_dir: Path | None = None,
+) -> AppSettings:
+    catalog = load_catalog(config_dir)
+    settings = load_settings(config_dir=config_dir, data_dir=data_dir, warn=False)
+    existing = settings.providers.get(provider_id)
+    preset = catalog.providers.get(provider_id)
+    if existing is None and preset is None:
+        raise ValueError(f'Unknown provider "{provider_id}".')
+    if existing is not None:
+        if model:
+            existing.model = model
+    elif preset is not None:
+        settings.providers[provider_id] = provider_config_from_preset(
+            preset, model or preset.default_model
+        )
+    settings.active_provider = provider_id
+    save_settings(settings, data_dir)
+    return settings
+
+
 def resolve_active_provider(
     settings: AppSettings, catalog: ProviderCatalog
 ) -> ProviderConfig | None:
