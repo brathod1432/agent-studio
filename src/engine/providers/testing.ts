@@ -67,6 +67,27 @@ export function validateModel(modelId: string, models: ModelInfo[] | undefined):
   };
 }
 
+/**
+ * List the models a provider exposes (e.g. GET /v1/models), resolving the API
+ * key from the environment via the config's apiKeyRef. The key is never logged
+ * or returned. Throws a normalized ProviderError on transport/auth failure.
+ */
+export async function listProviderModels(
+  config: ProviderConfig,
+  opts: HealthCheckOptions = {},
+): Promise<ModelInfo[]> {
+  const env = opts.env ?? process.env;
+  const resolved = resolveSecret(config.apiKeyRef, env);
+  if (resolved.present && resolved.secret) registerSecretValue(resolved.secret.reveal());
+  const provider = createProvider(config);
+  return provider.listModels({
+    apiKey: resolved.secret?.reveal(),
+    request: opts.request ?? DEFAULT_REQUEST,
+    fetchImpl: opts.fetchImpl,
+    now: opts.now,
+  });
+}
+
 /** Run only the connection test (reachability + auth). */
 export async function testConnection(
   config: ProviderConfig,

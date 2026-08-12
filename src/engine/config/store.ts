@@ -114,6 +114,58 @@ export function saveSettings(settings: AppSettings, opts: StoreOptions = {}): st
   return path;
 }
 
+/**
+ * Change the model of the active provider and persist. The provider config is
+ * materialized from the catalog if it wasn't saved yet. Returns the new
+ * settings. Never touches secrets (only apiKeyRef is stored).
+ */
+export function setActiveModel(model: string, opts: StoreOptions = {}): AppSettings {
+  const trimmed = model.trim();
+  if (!trimmed) throw new Error('A model id is required.');
+  const catalog = loadCatalog(opts.configDir);
+  const settings = loadSettings(opts);
+  const id = settings.activeProvider;
+  if (!id) throw new Error('No active provider is configured. Run onboarding first.');
+
+  const providers = { ...settings.providers };
+  if (providers[id]) {
+    providers[id] = { ...providers[id], model: trimmed };
+  } else {
+    const preset = catalog.providers[id];
+    if (!preset) throw new Error(`Unknown provider "${id}".`);
+    providers[id] = providerConfigFromPreset(preset, { model: trimmed });
+  }
+  const next: AppSettings = { ...settings, providers };
+  saveSettings(next, opts);
+  return next;
+}
+
+/**
+ * Switch the active provider (materializing it from the catalog when first
+ * selected) and persist. An optional model overrides the preset default.
+ */
+export function setActiveProvider(
+  providerId: string,
+  opts: StoreOptions & { model?: string } = {},
+): AppSettings {
+  const catalog = loadCatalog(opts.configDir);
+  const settings = loadSettings(opts);
+  const providers = { ...settings.providers };
+  const existing = providers[providerId];
+  const preset = catalog.providers[providerId];
+  if (!existing && !preset) throw new Error(`Unknown provider "${providerId}".`);
+  if (existing) {
+    if (opts.model) providers[providerId] = { ...existing, model: opts.model };
+  } else if (preset) {
+    providers[providerId] = providerConfigFromPreset(preset, {
+      model: opts.model ?? preset.defaultModel,
+    });
+  }
+  const next: AppSettings = { ...settings, activeProvider: providerId, providers };
+  saveSettings(next, opts);
+  return next;
+}
+
 /** Resolve the active provider config, falling back to the catalog default. */
 export function resolveActiveProvider(
   settings: AppSettings,

@@ -10,21 +10,29 @@ import {
   ConversationStore,
   createLLMClientFromSettings,
   formatError,
+  loadCatalog,
+  loadSettings,
   ProviderError,
+  resolveActiveProvider,
   resolveSecret,
+  setActiveModel,
+  setActiveProvider,
   type Conversation,
   type ConversationSummary,
   type ResolvedLLM,
 } from '../../engine/index.ts';
 import { createPrompter, type Prompter } from './prompt.ts';
+import { chooseModelId, chooseProviderId } from './config.ts';
 
 const HELP = [
   'Commands:',
-  '  /help    Show this help',
-  '  /new     Start a new conversation',
-  '  /list    List saved conversations',
-  '  /resume  Resume a saved conversation',
-  '  /exit    Quit',
+  '  /help      Show this help',
+  '  /new       Start a new conversation',
+  '  /list      List saved conversations',
+  '  /resume    Resume a saved conversation',
+  '  /model     Change the model (pick from the live list, or /model <id>)',
+  '  /provider  Switch provider (/provider, or /provider <id>)',
+  '  /exit      Quit',
 ].join('\n');
 
 function printBanner(): void {
@@ -70,15 +78,18 @@ export async function runChat(): Promise<void> {
     }
     throw err;
   }
-  const { client, config } = resolved;
+  let { client, config } = resolved;
 
   // Non-fatal warning if a required key is missing (the first call would fail).
-  if (config.apiKeyRef) {
-    const envName = config.apiKeyRef.replace(/^env:/, '');
-    if (!resolveSecret(config.apiKeyRef, process.env).present) {
-      console.log(`\nWarning: ${envName} is not set. Set it in .env.local before chatting.`);
+  const warnIfMissingKey = (): void => {
+    if (config.apiKeyRef) {
+      const envName = config.apiKeyRef.replace(/^env:/, '');
+      if (!resolveSecret(config.apiKeyRef, process.env).present) {
+        console.log(`Warning: ${envName} is not set. Set it in .env.local before chatting.`);
+      }
     }
-  }
+  };
+  warnIfMissingKey();
 
   console.log(`\nProvider: ${config.label} (${config.id})   Model: ${client.model}`);
   console.log('Type a message, or /help for commands.\n');
@@ -107,6 +118,16 @@ export async function runChat(): Promise<void> {
     }
 
     let agent = makeAgent(conversation);
+
+    // Rebuild the client/agent from freshly persisted settings (after a
+    // /model or /provider switch). The conversation is preserved so history
+    // carries over to the new model/provider.
+    const rebuild = (): void => {
+      const next = createLLMClientFromSettings({ env: process.env });
+      client = next.client;
+      config = next.config;
+      agent = makeAgent(conversation);
+    };
 
     // Chat loop.
     for (;;) {
@@ -147,6 +168,48 @@ export async function runChat(): Promise<void> {
           conversation = picked;
           agent = makeAgent(conversation);
           printHistory(conversation);
+          continue;
+        }
+        if (cmd === 'model') {
+          let model = rest.join(' ').trim();
+          if (!model) {
+            model = (await chooseModelId(prompt, config)) ?? '';
+            if (!model) {
+              console.log('No change made.\n');
+              continue;
+            }
+          }
+          try {
+            setActiveModel(model);
+            rebuild();
+            console.log(`Model is now "${client.model}".\n`);
+          } catch (err) {
+            console.log(`Could not change model: ${err instanceof Error ? err.message : String(err)}\n`);
+          }
+          continue;
+        }
+        if (cmd === 'provider') {
+          let providerId = rest.join(' ').trim();
+          if (!providerId) {
+            providerId = (await chooseProviderId(prompt, loadCatalog(), config.id)) ?? '';
+            if (!providerId) {
+              console.log('No change made.\n');
+              continue;
+            }
+          }
+          try {
+            setActiveProvider(providerId);
+            rebuild();
+            warnIfMissingKey();
+            const active = resolveActiveProvider(loadSettings(), loadCatalog());
+            console.log(`Provider is now "${config.label}" (${config.id}), model "${client.model}".`);
+            if (active && !active.model) {
+              console.log('This provider has no model set — use /model to pick one.');
+            }
+            console.log('');
+          } catch (err) {
+            console.log(`Could not switch provider: ${err instanceof Error ? err.message : String(err)}\n`);
+          }
           continue;
         }
         console.log(`Unknown command: /${cmd}. Type /help.`);

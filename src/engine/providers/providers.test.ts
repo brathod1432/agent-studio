@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import { providerConfigFromPreset } from '../config/store.ts';
 import { loadCatalog } from '../config/catalog.ts';
 import type { ProviderConfig, RequestSettings } from '../config/types.ts';
-import { healthCheck, testConnection, validateModel } from './testing.ts';
+import { healthCheck, listProviderModels, testConnection, validateModel } from './testing.ts';
+import { ProviderError } from './errors.ts';
 import { abortingFetch, failingFetch, jsonResponse, recordingFetch, textResponse } from '../../testkit/mockFetch.ts';
 
 const REQUEST: RequestSettings = { timeoutMs: 50, maxRetries: 0, retryBaseDelayMs: 1 };
@@ -95,4 +96,23 @@ test('local provider (no key required) connects without a key', async () => {
   const { fetch } = recordingFetch(jsonResponse(200, { data: [{ id: 'llama3.1' }] }));
   const result = await testConnection(ollama, { request: REQUEST, fetchImpl: fetch, env: {} });
   assert.equal(result.ok, true);
+});
+
+test('listProviderModels: returns model ids and sends a bearer header', async () => {
+  const { fetch, calls } = recordingFetch(
+    jsonResponse(200, { data: [{ id: 'a/model' }, { id: 'b/model', owned_by: 'b' }] }),
+  );
+  const models = await listProviderModels(nvidiaConfig(), { request: REQUEST, fetchImpl: fetch, env: KEYED_ENV });
+  assert.deepEqual(models.map((m) => m.id), ['a/model', 'b/model']);
+  assert.match(calls[0]!.url, /\/models$/);
+  const auth = (calls[0]!.init?.headers as Record<string, string>).Authorization;
+  assert.equal(auth, 'Bearer nvapi-test-key-abcd1234');
+});
+
+test('listProviderModels: surfaces a normalized error on 401', async () => {
+  const { fetch } = recordingFetch(textResponse(401, 'unauthorized'));
+  await assert.rejects(
+    () => listProviderModels(nvidiaConfig(), { request: REQUEST, fetchImpl: fetch, env: KEYED_ENV }),
+    (err: unknown) => err instanceof ProviderError && err.kind === 'invalid_api_key',
+  );
 });

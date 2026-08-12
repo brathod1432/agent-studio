@@ -9,6 +9,8 @@ export {
   saveSettings,
   resolveActiveProvider,
   providerConfigFromPreset,
+  setActiveModel,
+  setActiveProvider,
   type StoreOptions,
 } from './config/store.ts';
 export { resolvePaths, type ResolvedPaths } from './core/paths.ts';
@@ -46,6 +48,7 @@ export {
   healthCheck,
   testConnection,
   validateModel,
+  listProviderModels,
   type HealthReport,
   type HealthCheckOptions,
 } from './providers/testing.ts';
