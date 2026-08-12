@@ -124,7 +124,7 @@ export { type PromptTemplate, SimpleTemplate } from './prompts/template.ts';
 export { PromptRegistry, defaultRegistry, CHAT_SYSTEM } from './prompts/registry.ts';
 
 export { type Agent, type StreamingAgent, type AgentDeltaHandler } from './agents/agent.ts';
-export { ChatAgent, type ChatAgentOptions } from './agents/chatAgent.ts';
+export { ChatAgent, type ChatAgentOptions, type TurnOptions } from './agents/chatAgent.ts';
 
 // Python tool bridge (process-isolated stdio JSON-RPC extension).
 export {

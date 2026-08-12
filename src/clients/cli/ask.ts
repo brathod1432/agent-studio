@@ -23,19 +23,28 @@ import { applyFileContext } from './context.ts';
 export interface AskArgs {
   json: boolean;
   prompt: string;
+  model?: string;
+  temperature?: number;
 }
 
 /** Parse `ask` argv (everything after the command). Pure + testable. */
 export function parseAskArgs(argv: string[]): AskArgs {
   let json = false;
+  let model: string | undefined;
+  let temperature: number | undefined;
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--json') json = true;
     else if (a === '-m' || a === '--message') continue; // optional prompt marker
+    else if (a === '--model') model = argv[++i];
+    else if (a?.startsWith('--model=')) model = a.slice('--model='.length);
+    else if (a === '--temperature') temperature = Number(argv[++i]);
+    else if (a?.startsWith('--temperature=')) temperature = Number(a.slice('--temperature='.length));
     else parts.push(a);
   }
-  return { json, prompt: parts.join(' ').trim() };
+  if (temperature != null && Number.isNaN(temperature)) temperature = undefined;
+  return { json, prompt: parts.join(' ').trim(), model, temperature };
 }
 
 /**
@@ -57,7 +66,7 @@ async function readStdin(): Promise<string> {
 }
 
 export async function runAsk(argv: string[]): Promise<void> {
-  const { json, prompt: promptArg } = parseAskArgs(argv);
+  const { json, prompt: promptArg, model, temperature } = parseAskArgs(argv);
   const stdin = await readStdin();
   const combined = combineInput(promptArg, stdin);
 
@@ -83,19 +92,21 @@ export async function runAsk(argv: string[]): Promise<void> {
     throw err;
   }
   const { client, config } = resolved;
+  const turn = { model, temperature };
+  const effectiveModel = model ?? client.model;
 
   // One-shot is ephemeral: build a throwaway conversation that is never written.
   const store = new ConversationStore({ ephemeral: true });
-  const conversation = store.create({ providerId: config.id, model: client.model });
+  const conversation = store.create({ providerId: config.id, model: effectiveModel });
   const agent = new ChatAgent({ llm: client, store, conversation });
 
   try {
     if (json) {
-      const answer = await agent.run(input);
-      const out = { model: client.model, answer, usage: agent.lastUsage ?? null };
+      const answer = await agent.run(input, turn);
+      const out = { model: effectiveModel, answer, usage: agent.lastUsage ?? null };
       process.stdout.write(JSON.stringify(out, null, 2) + '\n');
     } else {
-      await agent.runStream(input, (delta) => process.stdout.write(delta));
+      await agent.runStream(input, (delta) => process.stdout.write(delta), undefined, turn);
       process.stdout.write('\n');
     }
   } catch (err) {

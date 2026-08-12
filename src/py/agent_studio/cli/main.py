@@ -16,6 +16,7 @@ from pathlib import Path
 from types import FrameType
 from typing import TextIO
 
+from .. import __version__
 from ..agent import ChatAgent
 from ..config.loader import (
     load_catalog,
@@ -63,6 +64,11 @@ def _apply_file_context(text: str, report_to: TextIO) -> str:
 # --------------------------------------------------------------------------
 # status / doctor
 # --------------------------------------------------------------------------
+def cmd_version(_args: argparse.Namespace) -> int:
+    print(f"agent-studio {__version__}")
+    return 0
+
+
 def cmd_status(_args: argparse.Namespace) -> int:
     catalog = load_catalog()
     settings = load_settings()
@@ -113,15 +119,19 @@ def cmd_ask(args: argparse.Namespace) -> int:
         print(err.message, file=sys.stderr)
         return 1
 
+    model = getattr(args, "model", None)
+    temperature = getattr(args, "temperature", None)
+    effective_model = model or resolved.client.model
+
     store = ConversationStore(ephemeral=True)
-    conversation = store.create(provider_id=resolved.config.id, model=resolved.client.model)
+    conversation = store.create(provider_id=resolved.config.id, model=effective_model)
     agent = ChatAgent(resolved.client, store, conversation, max_context_tokens=resolved.settings.max_context_tokens)
     try:
         if args.json:
-            answer = agent.run(message)
+            answer = agent.run(message, model=model, temperature=temperature)
             usage = agent.last_usage
             out = {
-                "model": resolved.client.model,
+                "model": effective_model,
                 "answer": answer,
                 "usage": None
                 if usage is None
@@ -133,7 +143,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             }
             sys.stdout.write(json.dumps(out, indent=2) + "\n")
         else:
-            agent.run_stream(message, _stdout)
+            agent.run_stream(message, _stdout, model=model, temperature=temperature)
             sys.stdout.write("\n")
     except ProviderError as err:
         print(format_error(err), file=sys.stderr)
@@ -489,14 +499,18 @@ def _choose_model(config: ProviderConfig, env: Mapping[str, str], settings: AppS
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="agent-studio-py", description="Agent Studio (Python runtime)")
+    parser.add_argument("--version", action="version", version=f"agent-studio {__version__}")
     sub = parser.add_subparsers(dest="command")
 
+    sub.add_parser("version", help="Print the version")
     sub.add_parser("status", help="Show current configuration (secret-safe)")
     sub.add_parser("doctor", help="Provider health check (live)")
 
     ask = sub.add_parser("ask", help="One-shot question (prints only the answer)")
     ask.add_argument("prompt", nargs="*", help="The question (stdin is combined as context)")
     ask.add_argument("--json", action="store_true", help="Emit a JSON result")
+    ask.add_argument("--model", help="Override the model for this call only")
+    ask.add_argument("--temperature", type=float, help="Override the temperature for this call only")
 
     chat = sub.add_parser("chat", help="Interactive conversational agent")
     chat.add_argument("--no-save", action="store_true", help="Ephemeral session (nothing written to disk)")
@@ -530,6 +544,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     command = args.command or "status"
     handlers = {
+        "version": cmd_version,
         "status": cmd_status,
         "doctor": cmd_doctor,
         "ask": cmd_ask,

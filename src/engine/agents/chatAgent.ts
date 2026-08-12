@@ -30,6 +30,12 @@ export interface ChatAgentOptions {
   maxContextTokens?: number;
 }
 
+/** Per-turn overrides (e.g. a one-shot cheaper model or deterministic temperature). */
+export interface TurnOptions {
+  model?: string;
+  temperature?: number;
+}
+
 export class ChatAgent implements Agent, StreamingAgent {
   #llm: LLMClient;
   #store: ConversationStore;
@@ -101,25 +107,31 @@ export class ChatAgent implements Agent, StreamingAgent {
     }
   }
 
-  async run(input: string): Promise<string> {
+  async run(input: string, opts: TurnOptions = {}): Promise<string> {
     this.#store.append(this.#conversation, { role: 'user', content: input });
     const messages = this.#buildMessages();
-    const response = await this.#llm.chat({ messages });
+    const response = await this.#llm.chat({ messages, model: opts.model, temperature: opts.temperature });
     this.#store.append(this.#conversation, { role: 'assistant', content: response.content });
     this.#store.save(this.#conversation); // auto-save
     this.#recordUsage(messages, response);
     return response.content;
   }
 
-  async runStream(input: string, onDelta: AgentDeltaHandler, signal?: AbortSignal): Promise<string> {
+  async runStream(
+    input: string,
+    onDelta: AgentDeltaHandler,
+    signal?: AbortSignal,
+    opts: TurnOptions = {},
+  ): Promise<string> {
     this.#store.append(this.#conversation, { role: 'user', content: input });
     const messages = this.#buildMessages();
+    const req = { messages, signal, model: opts.model, temperature: opts.temperature };
     let response;
     if (this.#llm.supportsStreaming()) {
-      response = await this.#llm.chatStream({ messages, signal }, onDelta);
+      response = await this.#llm.chatStream(req, onDelta);
     } else {
       // Fallback: no streaming — emit the full response as a single delta.
-      response = await this.#llm.chat({ messages, signal });
+      response = await this.#llm.chat(req);
       if (response.content) onDelta(response.content);
     }
     // Persist the turn even when cancelled: the user's question and any partial

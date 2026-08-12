@@ -5,7 +5,9 @@
 //
 // Run: node --env-file-if-exists=.env.local src/clients/cli/index.ts <command>
 
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   formatHealthReport,
@@ -29,6 +31,20 @@ function printBanner(): void {
   console.log('==============================================');
   console.log('        Welcome to Agent Studio');
   console.log('==============================================');
+}
+
+function readVersion(): string {
+  try {
+    const pkgPath = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'package.json');
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: string };
+    return pkg.version ?? '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+function runVersion(): void {
+  console.log(`agent-studio ${readVersion()}`);
 }
 
 async function runOnboarding(): Promise<void> {
@@ -165,8 +181,12 @@ function indent(text: string, pad: string): string {
 }
 
 async function main(): Promise<void> {
-  const cmd = process.argv[2] ?? (isFirstRun() ? 'onboard' : 'status');
+  const raw = process.argv[2];
+  const cmd = raw === '--version' || raw === '-v' ? 'version' : (raw ?? (isFirstRun() ? 'onboard' : 'status'));
   switch (cmd) {
+    case 'version':
+      runVersion();
+      break;
     case 'onboard':
       await runOnboarding();
       break;
@@ -189,7 +209,7 @@ async function main(): Promise<void> {
       await runAsk(process.argv.slice(3));
       break;
     default:
-      console.log('Usage: agent-studio <onboard|doctor|status|chat|config|ask>');
+      console.log('Usage: agent-studio <onboard|doctor|status|chat|config|ask|version>');
       process.exitCode = 2;
   }
 }

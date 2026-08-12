@@ -19,8 +19,9 @@ class FakeClient:
         self._usage = usage
         self.last_messages: list[ChatMessage] | None = None
 
-    def chat(self, messages, **_kw) -> ChatResponse:
+    def chat(self, messages, **kw) -> ChatResponse:
         self.last_messages = list(messages)
+        self.last_kwargs = dict(kw)
         return ChatResponse(self._reply, usage=self._usage)
 
     def chat_stream(self, messages, on_delta, *, should_cancel=None, **_kw) -> ChatResponse:
@@ -53,6 +54,14 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(agent.conversation.messages[1].content, "Hi back")
             self.assertEqual(client.last_messages[0].role, "system")
             self.assertEqual(store.load(agent.conversation.id).title, "Hello")
+
+    def test_run_forwards_model_and_temperature_overrides(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            client = FakeClient("ok")
+            agent, _ = _agent(d, client)
+            agent.run("hi", model="meta/llama-3.1-8b-instruct", temperature=0.0)
+            self.assertEqual(client.last_kwargs.get("model"), "meta/llama-3.1-8b-instruct")
+            self.assertEqual(client.last_kwargs.get("temperature"), 0.0)
 
     def test_exact_usage_vs_estimate(self) -> None:
         with tempfile.TemporaryDirectory() as d:

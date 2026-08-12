@@ -60,10 +60,16 @@ class ChatAgent:
             self.last_usage = estimate_usage(messages, response.content)
             self.last_usage_estimated = True
 
-    def run(self, user_input: str) -> str:
+    def run(
+        self,
+        user_input: str,
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+    ) -> str:
         self._store.append(self._conversation, ChatMessage("user", user_input))
         messages = self._build_messages()
-        response = self._llm.chat(messages)
+        response = self._llm.chat(messages, model=model, temperature=temperature)
         if response.content:
             self._store.append(self._conversation, ChatMessage("assistant", response.content))
         self._store.save(self._conversation)
@@ -71,11 +77,19 @@ class ChatAgent:
         return response.content
 
     def run_stream(
-        self, user_input: str, on_delta: DeltaHandler, should_cancel: CancelFn | None = None
+        self,
+        user_input: str,
+        on_delta: DeltaHandler,
+        should_cancel: CancelFn | None = None,
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
     ) -> str:
         self._store.append(self._conversation, ChatMessage("user", user_input))
         messages = self._build_messages()
-        response = self._llm.chat_stream(messages, on_delta, should_cancel=should_cancel)
+        response = self._llm.chat_stream(
+            messages, on_delta, model=model, temperature=temperature, should_cancel=should_cancel
+        )
         # Persist the turn even when cancelled: question + any partial reply.
         if response.content:
             self._store.append(self._conversation, ChatMessage("assistant", response.content))
