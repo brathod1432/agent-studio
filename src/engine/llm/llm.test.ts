@@ -150,6 +150,63 @@ test('streaming: a pre-aborted signal yields an empty cancelled response', async
   assert.equal(res.finishReason, 'cancelled');
 });
 
+const REQUEST_RETRY: RequestSettings = { timeoutMs: 50, maxRetries: 2, retryBaseDelayMs: 1 };
+
+test('retry: chat retries a transient 503 then succeeds', async () => {
+  let n = 0;
+  const { fetch, calls } = recordingFetch(() =>
+    n++ === 0 ? textResponse(503, 'busy') : chatCompletionResponse('recovered'),
+  );
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST_RETRY, fetchImpl: fetch });
+  const res = await client.chat({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(res.content, 'recovered');
+  assert.equal(calls.length, 2); // one failure + one success
+});
+
+test('retry: chat honors Retry-After on 429 then succeeds', async () => {
+  let n = 0;
+  const { fetch, calls } = recordingFetch(() =>
+    n++ === 0 ? textResponse(429, 'slow', { 'retry-after': '0' }) : chatCompletionResponse('ok'),
+  );
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST_RETRY, fetchImpl: fetch });
+  const res = await client.chat({ messages: [{ role: 'user', content: 'hi' }] });
+  assert.equal(res.content, 'ok');
+  assert.equal(calls.length, 2);
+});
+
+test('retry: chat does NOT retry a non-retryable 401', async () => {
+  const { fetch, calls } = recordingFetch(textResponse(401, 'nope'));
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST_RETRY, fetchImpl: fetch });
+  await assert.rejects(
+    () => client.chat({ messages: [{ role: 'user', content: 'x' }] }),
+    (err: unknown) => (err as { kind?: string }).kind === 'invalid_api_key',
+  );
+  assert.equal(calls.length, 1); // no retries
+});
+
+test('retry: chat gives up after maxRetries and throws', async () => {
+  const { fetch, calls } = recordingFetch(textResponse(500, 'boom'));
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST_RETRY, fetchImpl: fetch });
+  await assert.rejects(
+    () => client.chat({ messages: [{ role: 'user', content: 'x' }] }),
+    (err: unknown) => (err as { kind?: string }).kind === 'server',
+  );
+  assert.equal(calls.length, REQUEST_RETRY.maxRetries + 1); // initial + retries
+});
+
+test('retry: chatStream retries connection failure then streams (no duplicate output)', async () => {
+  let n = 0;
+  const { fetch, calls } = recordingFetch(() =>
+    n++ === 0 ? textResponse(503, 'busy') : sseChatResponse(['Hello', ' world']),
+  );
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST_RETRY, fetchImpl: fetch });
+  const deltas: string[] = [];
+  const res = await client.chatStream({ messages: [{ role: 'user', content: 'hi' }] }, (d) => deltas.push(d));
+  assert.equal(res.content, 'Hello world');
+  assert.deepEqual(deltas, ['Hello', ' world']); // emitted exactly once
+  assert.equal(calls.length, 2);
+});
+
 test('runtime errors: normalized taxonomy for missing key, 401, 429, timeout, network, 5xx', async () => {
   // Missing key: fetch must not be called.
   const missing = createLLMClient({

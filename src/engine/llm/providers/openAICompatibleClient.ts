@@ -6,7 +6,7 @@
 import type { ProviderConfig, RequestSettings } from '../../config/types.ts';
 import { fetchWithTimeout, joinUrl } from '../../core/http.ts';
 import { createProvider } from '../../providers/factory.ts';
-import { errorFromStatus, errorFromThrown, missingApiKey } from '../../providers/errors.ts';
+import { errorFromStatus, errorFromThrown, missingApiKey, ProviderError } from '../../providers/errors.ts';
 import type { FetchLike } from '../../providers/types.ts';
 import type {
   ChatRequest,
@@ -15,6 +15,33 @@ import type {
   LLMClientOptions,
   StreamDeltaHandler,
 } from '../types.ts';
+
+/** Upper bound on any single backoff wait, so a huge Retry-After can't hang us. */
+const MAX_BACKOFF_MS = 20_000;
+
+/** Wait `ms`, resolving early if `signal` aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (ms <= 0 || signal?.aborted) return resolve();
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+/** Backoff for a given attempt: honor Retry-After, else exponential + jitter. */
+function backoffMs(err: ProviderError, attempt: number, baseMs: number): number {
+  const fromServer = err.retryAfterSeconds != null ? err.retryAfterSeconds * 1000 : undefined;
+  const exponential = baseMs * 2 ** attempt;
+  const jitter = Math.floor(Math.random() * 100);
+  return Math.min(fromServer ?? exponential + jitter, MAX_BACKOFF_MS);
+}
 
 interface ChatCompletionChoice {
   message?: { content?: string };
@@ -93,80 +120,121 @@ export class OpenAICompatibleChatClient implements LLMClient {
     return result.ok;
   }
 
+  /** Whether a normalized error is worth retrying, given attempts + cancel state. */
+  #shouldRetry(err: ProviderError, attempt: number, signal?: AbortSignal): boolean {
+    return err.retryable && attempt < this.#request.maxRetries && !signal?.aborted;
+  }
+
   async chat(request: ChatRequest): Promise<ChatResponse> {
     this.#requireKey();
     const url = joinUrl(this.config.baseUrl, 'chat/completions');
-    let res: Response;
-    try {
-      res = await fetchWithTimeout(
-        this.#fetch(),
-        url,
-        { method: 'POST', headers: this.#headers({ Accept: 'application/json' }), body: this.#body(request, false) },
-        this.#request.timeoutMs,
-        request.signal,
-      );
-    } catch (err) {
-      // A user-initiated cancel yields an empty (but non-error) response.
-      if (request.signal?.aborted) return { content: '', finishReason: 'cancelled' };
-      throw errorFromThrown(err);
-    }
-    if (!res.ok) throw errorFromStatus(res.status, res.headers, await safeText(res));
 
-    const data = (await res.json().catch(() => ({}))) as ChatCompletionBody;
-    const choice = data.choices?.[0];
-    return {
-      content: choice?.message?.content ?? '',
-      model: data.model,
-      finishReason: choice?.finish_reason,
-      usage: data.usage
-        ? {
-            promptTokens: data.usage.prompt_tokens,
-            completionTokens: data.usage.completion_tokens,
-            totalTokens: data.usage.total_tokens,
-          }
-        : undefined,
-    };
+    // Retry transient failures (429/5xx/timeout/network) with backoff. The
+    // whole request/response is safe to retry (nothing has been emitted yet).
+    for (let attempt = 0; ; attempt++) {
+      if (request.signal?.aborted) return { content: '', finishReason: 'cancelled' };
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(
+          this.#fetch(),
+          url,
+          { method: 'POST', headers: this.#headers({ Accept: 'application/json' }), body: this.#body(request, false) },
+          this.#request.timeoutMs,
+          request.signal,
+        );
+      } catch (err) {
+        if (request.signal?.aborted) return { content: '', finishReason: 'cancelled' };
+        const perr = errorFromThrown(err);
+        if (this.#shouldRetry(perr, attempt, request.signal)) {
+          await sleep(backoffMs(perr, attempt, this.#request.retryBaseDelayMs), request.signal);
+          continue;
+        }
+        throw perr;
+      }
+      if (!res.ok) {
+        const perr = errorFromStatus(res.status, res.headers, await safeText(res));
+        if (this.#shouldRetry(perr, attempt, request.signal)) {
+          await sleep(backoffMs(perr, attempt, this.#request.retryBaseDelayMs), request.signal);
+          continue;
+        }
+        throw perr;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as ChatCompletionBody;
+      const choice = data.choices?.[0];
+      return {
+        content: choice?.message?.content ?? '',
+        model: data.model,
+        finishReason: choice?.finish_reason,
+        usage: data.usage
+          ? {
+              promptTokens: data.usage.prompt_tokens,
+              completionTokens: data.usage.completion_tokens,
+              totalTokens: data.usage.total_tokens,
+            }
+          : undefined,
+      };
+    }
   }
 
   async chatStream(request: ChatRequest, onDelta: StreamDeltaHandler): Promise<ChatResponse> {
     this.#requireKey();
     const url = joinUrl(this.config.baseUrl, 'chat/completions');
 
-    // Streaming needs one signal that (a) aborts on timeout until headers arrive
-    // and (b) keeps honoring an external cancel for the whole body. fetchWithTimeout
-    // clears its linkage after headers, so we manage the controller here instead.
+    // A single external-cancel listener spans all attempts and the body: it
+    // aborts whichever attempt controller is current. Retries happen only while
+    // establishing the connection (before any delta is emitted), so a retry can
+    // never duplicate streamed output.
     const external = request.signal;
-    const controller = new AbortController();
-    const onExternalAbort = (): void => controller.abort();
-    if (external) {
-      if (external.aborted) controller.abort();
-      else external.addEventListener('abort', onExternalAbort, { once: true });
-    }
-    const timer = setTimeout(() => controller.abort(), this.#request.timeoutMs);
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      external?.removeEventListener('abort', onExternalAbort);
-    };
+    let controller!: AbortController;
+    const onExternalAbort = (): void => controller?.abort();
+    if (external && !external.aborted) external.addEventListener('abort', onExternalAbort, { once: true });
+    const detach = (): void => external?.removeEventListener('abort', onExternalAbort);
 
-    let res: Response;
-    try {
-      res = await this.#fetch()(url, {
-        method: 'POST',
-        headers: this.#headers({ Accept: 'text/event-stream' }),
-        body: this.#body(request, true),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      cleanup();
-      if (external?.aborted) return { content: '', finishReason: 'cancelled' };
-      throw errorFromThrown(err);
-    }
-    // Headers received: stop the timeout but keep the external-cancel link so a
-    // Ctrl+C mid-stream still aborts the in-flight body.
-    clearTimeout(timer);
-    if (!res.ok) {
-      external?.removeEventListener('abort', onExternalAbort);
-      throw errorFromStatus(res.status, res.headers, await safeText(res));
+    let res!: Response;
+    for (let attempt = 0; ; attempt++) {
+      if (external?.aborted) {
+        detach();
+        return { content: '', finishReason: 'cancelled' };
+      }
+      controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.#request.timeoutMs);
+      let r: Response;
+      try {
+        r = await this.#fetch()(url, {
+          method: 'POST',
+          headers: this.#headers({ Accept: 'text/event-stream' }),
+          body: this.#body(request, true),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timer);
+        if (external?.aborted) {
+          detach();
+          return { content: '', finishReason: 'cancelled' };
+        }
+        const perr = errorFromThrown(err);
+        if (this.#shouldRetry(perr, attempt, external)) {
+          await sleep(backoffMs(perr, attempt, this.#request.retryBaseDelayMs), external);
+          continue;
+        }
+        detach();
+        throw perr;
+      }
+      // Headers received: stop the timeout but keep the external-cancel link so
+      // a Ctrl+C mid-stream still aborts the in-flight body.
+      clearTimeout(timer);
+      if (r.ok) {
+        res = r;
+        break;
+      }
+      const perr = errorFromStatus(r.status, r.headers, await safeText(r));
+      if (this.#shouldRetry(perr, attempt, external)) {
+        await sleep(backoffMs(perr, attempt, this.#request.retryBaseDelayMs), external);
+        continue;
+      }
+      detach();
+      throw perr;
     }
 
     let full = '';
@@ -208,7 +276,7 @@ export class OpenAICompatibleChatClient implements LLMClient {
       if (external?.aborted) return { content: full, model, finishReason: 'cancelled', usage };
       throw errorFromThrown(err);
     } finally {
-      external?.removeEventListener('abort', onExternalAbort);
+      detach();
     }
     return { content: full, model, finishReason, usage };
   }
