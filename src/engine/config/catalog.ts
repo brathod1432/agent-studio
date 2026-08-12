@@ -1,17 +1,13 @@
 // Loads the provider catalog and default config from JSON files at runtime, so
 // users can edit provider presets / defaults without any code changes.
 
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { readJsonFile } from '../core/jsonFile.ts';
 import { resolvePaths } from '../core/paths.ts';
 import type { DefaultConfig, ProviderCatalog, ProviderKind, ProviderPreset } from './types.ts';
 
 const VALID_KINDS: readonly ProviderKind[] = ['openai-compatible', 'anthropic'];
-
-function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, 'utf8'));
-}
 
 function coercePreset(id: string, raw: Record<string, unknown>): ProviderPreset {
   const kind = raw.kind as ProviderKind;
@@ -33,7 +29,7 @@ function coercePreset(id: string, raw: Record<string, unknown>): ProviderPreset 
 
 export function loadCatalog(configDir?: string): ProviderCatalog {
   const dir = configDir ?? resolvePaths().configDir;
-  const raw = readJson(join(dir, 'providers.json')) as { providers?: Record<string, Record<string, unknown>> };
+  const raw = readJsonFile(join(dir, 'providers.json')) as { providers?: Record<string, Record<string, unknown>> };
   const providers: Record<string, ProviderPreset> = {};
   for (const [id, preset] of Object.entries(raw.providers ?? {})) {
     providers[id] = coercePreset(id, preset);
@@ -46,7 +42,7 @@ export function loadCatalog(configDir?: string): ProviderCatalog {
 
 export function loadDefaultConfig(configDir?: string): DefaultConfig {
   const dir = configDir ?? resolvePaths().configDir;
-  const raw = readJson(join(dir, 'default.json')) as Record<string, unknown>;
+  const raw = readJsonFile(join(dir, 'default.json')) as Record<string, unknown>;
   const request = (raw.request ?? {}) as Record<string, unknown>;
   return {
     activeProvider: raw.activeProvider ? String(raw.activeProvider) : undefined,

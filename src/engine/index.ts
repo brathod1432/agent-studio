@@ -25,6 +25,7 @@ export {
   type ResolvedSecret,
 } from './core/secrets.ts';
 export { upsertEnvVar } from './core/envFile.ts';
+export { stripBom, parseJson, readJsonFile, JsonParseError } from './core/jsonFile.ts';
 export { logger, Logger, type LogLevel } from './core/logger.ts';
 export { redact, registerSecretValue, scrubString } from './core/redact.ts';
 export {

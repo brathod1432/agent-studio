@@ -5,10 +5,37 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
+import { JsonParseError, parseJson } from '../core/jsonFile.ts';
+import { logger } from '../core/logger.ts';
 import { resolvePaths } from '../core/paths.ts';
 import { envRef } from '../core/secrets.ts';
 import { loadCatalog, loadDefaultConfig } from './catalog.ts';
 import type { AppSettings, ProviderCatalog, ProviderConfig, ProviderPreset } from './types.ts';
+
+/**
+ * Read + parse the settings file, BOM-safe. Returns undefined when the file is
+ * absent. On malformed content, emits a clear warning (so the user knows their
+ * file was ignored) and returns undefined instead of crashing or silently
+ * reverting with no notice (see UX/security review S-4).
+ */
+function readSettingsFile(path: string, warn: boolean): Partial<AppSettings> | undefined {
+  if (!existsSync(path)) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = parseJson(readFileSync(path, 'utf8'), path);
+  } catch (err) {
+    if (warn) {
+      const detail = err instanceof JsonParseError ? err.message : String(err);
+      logger.warn(`Ignoring unreadable settings file; using defaults instead. ${detail}`);
+    }
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    if (warn) logger.warn(`Settings file "${path}" is not a JSON object; using defaults instead.`);
+    return undefined;
+  }
+  return parsed as Partial<AppSettings>;
+}
 
 export interface StoreOptions {
   configDir?: string;
@@ -39,14 +66,10 @@ export function providerConfigFromPreset(
 
 /** True when no settings have been persisted yet (trigger onboarding). */
 export function isFirstRun(opts: StoreOptions = {}): boolean {
-  const path = settingsPath(opts);
-  if (!existsSync(path)) return true;
-  try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<AppSettings>;
-    return !parsed.activeProvider || !parsed.providers || Object.keys(parsed.providers).length === 0;
-  } catch {
-    return true;
-  }
+  // Quiet here (no warning) — loadSettings surfaces the warning once instead.
+  const parsed = readSettingsFile(settingsPath(opts), false);
+  if (!parsed) return true;
+  return !parsed.activeProvider || !parsed.providers || Object.keys(parsed.providers).length === 0;
 }
 
 /**
@@ -58,14 +81,7 @@ export function loadSettings(opts: StoreOptions = {}): AppSettings {
   const catalog = loadCatalog(opts.configDir);
   const path = settingsPath(opts);
 
-  let saved: Partial<AppSettings> = {};
-  if (existsSync(path)) {
-    try {
-      saved = JSON.parse(readFileSync(path, 'utf8')) as Partial<AppSettings>;
-    } catch {
-      saved = {};
-    }
-  }
+  const saved: Partial<AppSettings> = readSettingsFile(path, true) ?? {};
 
   const activeProvider = saved.activeProvider ?? defaults.activeProvider;
   const providers: Record<string, ProviderConfig> = { ...(saved.providers ?? {}) };
