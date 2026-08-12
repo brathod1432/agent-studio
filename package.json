@@ -32,6 +32,7 @@
   "scripts": {
     "onboard": "node --env-file-if-exists=.env.local src/clients/cli/index.ts onboard",
     "chat": "node --env-file-if-exists=.env.local src/clients/cli/index.ts chat",
+    "ask": "node --env-file-if-exists=.env.local src/clients/cli/index.ts ask",
     "doctor": "node --env-file-if-exists=.env.local src/clients/cli/index.ts doctor",
     "serve": "node --env-file-if-exists=.env.local src/clients/web/index.ts",
     "mock": "node tools/mock-provider/server.ts",

@@ -10,6 +10,12 @@ import { CONVERSATION_SCHEMA_VERSION, type Conversation } from './types.ts';
 export interface PersistenceOptions {
   /** Override the data dir (defaults to resolvePaths().dataDir). */
   dataDir?: string;
+  /**
+   * Ephemeral mode: nothing is written to disk. Reads still work (so existing
+   * conversations remain listable), but saves are no-ops. Used by one-shot
+   * `ask` and the chat `--no-save` mode.
+   */
+  ephemeral?: boolean;
 }
 
 export function conversationsDir(opts: PersistenceOptions = {}): string {
@@ -40,6 +46,8 @@ export function readConversationFile(id: string, opts: PersistenceOptions = {}):
 }
 
 export function writeConversationFile(conversation: Conversation, opts: PersistenceOptions = {}): string {
+  // Ephemeral mode: never touch the disk.
+  if (opts.ephemeral) return '';
   const dir = conversationsDir(opts);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, `${safeId(conversation.id)}.json`);

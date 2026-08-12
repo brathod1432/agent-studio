@@ -95,3 +95,18 @@ test('load throws for a missing conversation; delete removes the file', () => {
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+test('ephemeral store: save is a no-op and writes nothing to disk', () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'as-mem-eph-'));
+  try {
+    const store = new ConversationStore({ dataDir, ephemeral: true });
+    const conv = store.create({ providerId: 'nvidia', model: 'm' });
+    store.append(conv, { role: 'user', content: 'secret question' });
+    const path = store.save(conv);
+    assert.equal(path, ''); // nothing persisted
+    assert.equal(existsSync(conversationsDir({ dataDir })), false);
+    assert.equal(store.list().length, 0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

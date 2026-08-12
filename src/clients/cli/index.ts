@@ -23,6 +23,7 @@ import { OnboardingSession } from '../../engine/index.ts';
 import { createPrompter } from './prompt.ts';
 import { runChat } from './chat.ts';
 import { runConfig } from './config.ts';
+import { runAsk } from './ask.ts';
 
 function printBanner(): void {
   console.log('==============================================');
@@ -181,8 +182,11 @@ async function main(): Promise<void> {
     case 'config':
       await runConfig(process.argv.slice(3));
       break;
+    case 'ask':
+      await runAsk(process.argv.slice(3));
+      break;
     default:
-      console.log('Usage: agent-studio <onboard|doctor|status|chat|config>');
+      console.log('Usage: agent-studio <onboard|doctor|status|chat|config|ask>');
       process.exitCode = 2;
   }
 }
