@@ -4,6 +4,7 @@
 //
 // Run: node --env-file-if-exists=.env.local src/clients/web/index.ts
 
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
@@ -17,22 +18,23 @@ import {
   upsertEnvVar,
   OnboardingSession,
 } from '../../engine/index.ts';
+import { csrfMatches, isAllowedOrigin, isLoopbackHost, SECURITY_HEADERS } from './security.ts';
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.AGENT_STUDIO_WEB_PORT ?? 4173);
+
+// One-time CSRF token for this server instance. It is embedded into the served
+// page (same-origin readable only) and required as X-CSRF-Token on every POST,
+// so a malicious web page can neither read nor guess it.
+const CSRF_TOKEN = randomBytes(32).toString('hex');
 
 const catalog = loadCatalog();
 let session = new OnboardingSession({ catalog });
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' });
   res.end(payload);
-}
-
-function isLoopbackHost(req: IncomingMessage): boolean {
-  const host = (req.headers.host ?? '').split(':')[0];
-  return host === '127.0.0.1' || host === 'localhost' || host === '[::1]';
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -47,8 +49,9 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function servePage(res: ServerResponse): void {
-  const html = readFileSync(join(import.meta.dirname, 'public', 'onboard.html'), 'utf8');
-  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  const raw = readFileSync(join(import.meta.dirname, 'public', 'onboard.html'), 'utf8');
+  const html = raw.replace('__CSRF_TOKEN__', CSRF_TOKEN);
+  res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': 'text/html; charset=utf-8' });
   res.end(html);
 }
 
@@ -57,8 +60,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   // NOTE: we log method + path only — never headers or body (may contain a key).
   logger.debug('web request', { method: req.method, path: url.pathname });
 
-  if (!isLoopbackHost(req)) {
+  if (!isLoopbackHost(req.headers.host)) {
     json(res, 403, { error: 'Only loopback access is allowed.' });
+    return;
+  }
+  if (!isAllowedOrigin(req.headers.origin)) {
+    json(res, 403, { error: 'Cross-origin request rejected.' });
     return;
   }
 
@@ -69,6 +76,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   if (req.method === 'POST') {
+    // CSRF: state-changing requests must carry the token embedded in our page.
+    if (!csrfMatches(req.headers['x-csrf-token'], CSRF_TOKEN)) {
+      json(res, 403, { error: 'Missing or invalid CSRF token.' });
+      return;
+    }
     const body = await readBody(req);
     switch (url.pathname) {
       case '/api/reset':
