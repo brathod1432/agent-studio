@@ -33,6 +33,8 @@ from ..memory.store import ConversationStore
 from ..providers.diagnostics import format_error, format_health_report
 from ..providers.errors import ProviderError
 from ..providers.testing import health_check, list_models
+from ..tools.base import ToolError
+from ..tools.registry import default_registry
 
 
 def build_env() -> dict[str, str]:
@@ -171,6 +173,42 @@ def cmd_config(args: argparse.Namespace) -> int:
             return 1
         return 0
     print("Usage: config [show | model <id> | provider <id>]", file=sys.stderr)
+    return 2
+
+
+# --------------------------------------------------------------------------
+# tools
+# --------------------------------------------------------------------------
+def cmd_tools(args: argparse.Namespace) -> int:
+    registry = default_registry()
+    action = args.action or "list"
+    if action == "list":
+        for descriptor in registry.list():
+            print(f"{descriptor['name']}\n  {descriptor['description']}")
+        return 0
+    if action == "run":
+        if not args.name:
+            print("Usage: tools run <name> [--args '<json>']  (or pipe JSON args on stdin)", file=sys.stderr)
+            return 2
+        raw = args.args
+        if raw is None and not sys.stdin.isatty():
+            raw = sys.stdin.read().strip() or None
+        try:
+            arguments = json.loads(raw) if raw else {}
+        except json.JSONDecodeError as err:
+            print(f"Invalid --args JSON: {err}", file=sys.stderr)
+            return 2
+        if not isinstance(arguments, dict):
+            print("Tool arguments must be a JSON object.", file=sys.stderr)
+            return 2
+        try:
+            result = registry.call(args.name, arguments)
+        except ToolError as err:
+            print(f"Tool error: {err}", file=sys.stderr)
+            return 1
+        sys.stdout.write(json.dumps(result, indent=2) + "\n")
+        return 0
+    print("Usage: tools [list | run <name>]", file=sys.stderr)
     return 2
 
 
@@ -447,6 +485,11 @@ def build_parser() -> argparse.ArgumentParser:
     cfg = sub.add_parser("config", help="View/change provider and model")
     cfg.add_argument("subcommand", nargs="?", choices=["show", "model", "provider"])
     cfg.add_argument("value", nargs="?")
+
+    tools = sub.add_parser("tools", help="List or run built-in tools")
+    tools.add_argument("action", nargs="?", choices=["list", "run"])
+    tools.add_argument("name", nargs="?", help="Tool name (for 'run')")
+    tools.add_argument("--args", help="Tool arguments as a JSON object (or pipe on stdin)")
     return parser
 
 
@@ -473,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
         "ask": cmd_ask,
         "chat": cmd_chat,
         "config": cmd_config,
+        "tools": cmd_tools,
     }
     handler = handlers.get(command)
     if handler is None:
