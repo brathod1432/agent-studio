@@ -37,6 +37,8 @@
     "serve": "node --env-file-if-exists=.env.local src/clients/web/index.ts",
     "mock": "node tools/mock-provider/server.ts",
     "test": "node --env-file-if-exists=.env.local --test \"src/**/*.test.ts\"",
+    "test:py": "cd src/py && python -m unittest discover -s tests -t . -v",
+    "test:all": "npm test && npm run test:py",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

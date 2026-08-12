@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agent-studio"
+version = "0.0.1"
+description = "Python runtime for Agent Studio: provider client, agent, tools, and a stdio tool host. Standard-library only (zero runtime dependencies)."
+readme = "src/py/README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+authors = [{ name = "brathod1432" }]
+keywords = ["ai", "agent", "llm", "nvidia", "ollama", "openai-compatible", "cli", "local-first"]
+# Runtime dependencies are intentionally empty — the Python runtime uses only
+# the Python 3.12 standard library, mirroring the TypeScript engine's zero-
+# runtime-dependency policy.
+dependencies = []
+
+[project.optional-dependencies]
+# Dev-only tooling. Not required to run or test the app (tests use stdlib
+# unittest, exactly as the TS side uses node --test).
+dev = ["ruff>=0.6", "mypy>=1.11"]
+
+[project.scripts]
+agent-studio-py = "agent_studio.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src/py"]
+include = ["agent_studio*"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src/py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/py/agent_studio"]
