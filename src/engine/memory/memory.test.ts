@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -155,6 +155,36 @@ test('conversationToMarkdown: renders title, metadata, and role headings', () =>
 
     const name = defaultExportFilename(conv);
     assert.match(name, /^chat-a-[0-9a-f]{8}\.md$/);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('save is atomic: no leftover temp files, only the final .json remains', () => {
+  const { store, dataDir } = tempStore();
+  try {
+    const conv = store.create({ providerId: 'nvidia', model: 'm' });
+    store.append(conv, { role: 'user', content: 'hi' });
+    store.save(conv);
+    const files = readdirSync(conversationsDir({ dataDir }));
+    assert.deepEqual(files, [`${conv.id}.json`]);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('a corrupt conversation file is skipped (kept on disk), not silently lost', () => {
+  const { store, dataDir } = tempStore();
+  try {
+    const good = store.create();
+    store.append(good, { role: 'user', content: 'ok' });
+    store.save(good);
+    const dir = conversationsDir({ dataDir });
+    writeFileSync(join(dir, 'deadbeef.json'), '{ not json', 'utf8');
+
+    const list = store.list();
+    assert.equal(list.length, 1); // the good one is still listed
+    assert.ok(existsSync(join(dir, 'deadbeef.json'))); // corrupt file preserved
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

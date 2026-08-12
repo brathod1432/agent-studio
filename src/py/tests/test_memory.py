@@ -64,6 +64,38 @@ class StoreTests(unittest.TestCase):
                 store._path("../escape")  # noqa: SLF001
 
 
+class RobustnessTests(unittest.TestCase):
+    def test_save_is_atomic_no_temp_left_behind(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            store = ConversationStore(data_dir=Path(d))
+            conv = store.create(provider_id="nvidia", model="m")
+            store.append(conv, ChatMessage("user", "hi"))
+            store.save(conv)
+            files = list((Path(d) / "conversations").iterdir())
+            # Only the final .json remains (no leftover temp files).
+            self.assertEqual([f.name for f in files], [f"{conv.id}.json"])
+
+    def test_corrupt_file_is_surfaced_not_silently_dropped(self) -> None:
+        import io
+        from contextlib import redirect_stderr
+
+        with tempfile.TemporaryDirectory() as d:
+            store = ConversationStore(data_dir=Path(d))
+            good = store.create()
+            store.append(good, ChatMessage("user", "ok"))
+            store.save(good)
+            # Write a corrupt conversation file alongside the good one.
+            (Path(d) / "conversations" / "deadbeef.json").write_text("{ not json", encoding="utf-8")
+
+            buf = io.StringIO()
+            with redirect_stderr(buf):
+                summaries = store.list()
+            self.assertEqual(len(summaries), 1)  # good one still listed
+            self.assertIn("unreadable", buf.getvalue().lower())
+            # The corrupt file is kept (not deleted).
+            self.assertTrue((Path(d) / "conversations" / "deadbeef.json").exists())
+
+
 class ExportTests(unittest.TestCase):
     def test_markdown_and_filename(self) -> None:
         with tempfile.TemporaryDirectory() as d:

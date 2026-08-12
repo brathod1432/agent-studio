@@ -1,9 +1,10 @@
 // Filesystem persistence for conversations. JSON only, human-readable, no DB,
 // no dependencies. Files live under <dataDir>/conversations/<id>.json.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { logger } from '../core/logger.ts';
 import { resolvePaths } from '../core/paths.ts';
 import { CONVERSATION_SCHEMA_VERSION, type Conversation } from './types.ts';
 
@@ -41,6 +42,9 @@ export function readConversationFile(id: string, opts: PersistenceOptions = {}):
   try {
     return JSON.parse(readFileSync(path, 'utf8')) as Conversation;
   } catch {
+    // The file exists but is unreadable/corrupt — surface it rather than
+    // silently dropping it (and keep the file so nothing is lost).
+    logger.warn(`Skipping unreadable conversation file "${path}" (corrupt JSON).`);
     return undefined;
   }
 }
@@ -54,7 +58,11 @@ export function writeConversationFile(conversation: Conversation, opts: Persiste
   const toWrite: Conversation = { ...conversation, schemaVersion: CONVERSATION_SCHEMA_VERSION };
   // Secret instances serialize to their masked form via toJSON, but conversations
   // should never contain them in the first place. This is defense-in-depth.
-  writeFileSync(path, JSON.stringify(toWrite, null, 2) + '\n', 'utf8');
+  // Atomic write: write to a temp file, then rename over the target so a crash
+  // mid-write can never corrupt an existing conversation.
+  const tmp = join(dir, `.${safeId(conversation.id)}.${process.pid}.${Date.now()}.tmp`);
+  writeFileSync(tmp, JSON.stringify(toWrite, null, 2) + '\n', 'utf8');
+  renameSync(tmp, path);
   return path;
 }
 

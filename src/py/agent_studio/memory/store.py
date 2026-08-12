@@ -8,7 +8,9 @@ and export each other's conversations.
 from __future__ import annotations
 
 import json
+import os
 import re
+import sys
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -148,9 +150,14 @@ class ConversationStore:
         conversation.updated_at = _now_iso()
         if self._ephemeral:
             return ""
-        self._dir().mkdir(parents=True, exist_ok=True)
+        directory = self._dir()
+        directory.mkdir(parents=True, exist_ok=True)
         path = self._path(conversation.id)
-        path.write_text(json.dumps(conversation.to_json_obj(), indent=2) + "\n", encoding="utf-8")
+        # Atomic write: temp file + rename, so a crash mid-write can't corrupt
+        # an existing conversation.
+        tmp = directory / f".{_safe_id(conversation.id)}.{os.getpid()}.tmp"
+        tmp.write_text(json.dumps(conversation.to_json_obj(), indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
         return str(path)
 
     def try_load(self, conv_id: str) -> Conversation | None:
@@ -179,6 +186,9 @@ class ConversationStore:
         for cid in self._iter_ids():
             conv = self.try_load(cid)
             if conv is None:
+                # The file exists (from _iter_ids) but couldn't be parsed —
+                # surface it rather than silently dropping it.
+                print(f"Warning: skipping unreadable conversation file for id {cid} (corrupt?).", file=sys.stderr)
                 continue
             out.append(ConversationSummary(conv.id, conv.title, conv.updated_at, len(conv.messages)))
         out.sort(key=lambda s: s.updated_at, reverse=True)
