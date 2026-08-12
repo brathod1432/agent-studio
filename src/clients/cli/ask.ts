@@ -18,6 +18,7 @@ import {
   ProviderError,
   type ResolvedLLM,
 } from '../../engine/index.ts';
+import { applyFileContext } from './context.ts';
 
 export interface AskArgs {
   json: boolean;
@@ -58,13 +59,16 @@ async function readStdin(): Promise<string> {
 export async function runAsk(argv: string[]): Promise<void> {
   const { json, prompt: promptArg } = parseAskArgs(argv);
   const stdin = await readStdin();
-  const input = combineInput(promptArg, stdin);
+  const combined = combineInput(promptArg, stdin);
 
-  if (!input) {
+  if (!combined) {
     console.error('Usage: agent-studio ask [--json] "your question"   (or pipe input via stdin)');
     process.exitCode = 2;
     return;
   }
+
+  // Expand @file references; notes go to stderr so stdout stays answer-only.
+  const input = applyFileContext(combined, (line) => console.error(line));
 
   let resolved: ResolvedLLM;
   try {

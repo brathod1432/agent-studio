@@ -30,6 +30,15 @@ export { logger, Logger, type LogLevel } from './core/logger.ts';
 export { redact, registerSecretValue, scrubString } from './core/redact.ts';
 export { detectSecrets, looksLikeSecret, describeSecretKinds } from './core/secretScan.ts';
 export {
+  expandFileReferences,
+  extractFileRefs,
+  type ExpandOptions,
+  type ExpandResult,
+  type FileRef,
+  type FileReader,
+  type FileReadResult,
+} from './context/fileContext.ts';
+export {
   ProviderError,
   type ProviderErrorKind,
   errorFromStatus,

@@ -28,6 +28,7 @@ import {
 } from '../../engine/index.ts';
 import { createPrompter, type Prompter } from './prompt.ts';
 import { chooseModelId, chooseProviderId } from './config.ts';
+import { applyFileContext } from './context.ts';
 
 const HELP = [
   'Commands:',
@@ -38,6 +39,8 @@ const HELP = [
   '  /model     Change the model (pick from the live list, or /model <id>)',
   '  /provider  Switch provider (/provider, or /provider <id>)',
   '  /exit      Quit',
+  '',
+  'Tip: reference a file with @path (e.g. "explain @src/app.ts") to add it as context.',
 ].join('\n');
 
 function printBanner(): void {
@@ -239,9 +242,12 @@ export async function runChat(): Promise<void> {
         continue;
       }
 
-      // Privacy guard: if the message looks like it contains a secret, warn
-      // before it is sent to the provider and written to disk in plaintext.
-      const kinds = detectSecrets(input);
+      // Expand @file references into the message before sending/persisting.
+      const message = applyFileContext(input, (line) => console.log(line));
+
+      // Privacy guard: if the message (including any included files) looks like
+      // it contains a secret, warn before it is sent and stored in plaintext.
+      const kinds = detectSecrets(message);
       if (kinds.length > 0) {
         console.log(`\n⚠ This message looks like it contains ${describeSecretKinds(kinds)}.`);
         console.log('  It would be sent to the provider and saved to this conversation in plaintext.');
@@ -263,7 +269,7 @@ export async function runChat(): Promise<void> {
       const controller = new AbortController();
       const unsubscribe = prompt.onSigint(() => controller.abort());
       try {
-        await agent.runStream(input, (delta) => process.stdout.write(delta), controller.signal);
+        await agent.runStream(message, (delta) => process.stdout.write(delta), controller.signal);
         process.stdout.write('\n');
         if (controller.signal.aborted) {
           console.log('[cancelled — partial reply saved]');
