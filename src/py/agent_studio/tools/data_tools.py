@@ -20,9 +20,9 @@ def csv_to_json(args: dict[str, Any]) -> dict[str, Any]:
         return {"rows": [], "count": 0}
     if has_header:
         header = rows[0]
-        records = [dict(zip(header, r)) for r in rows[1:]]
+        records = [dict(zip(header, r, strict=False)) for r in rows[1:]]
     else:
-        records = [{"col%d" % i: v for i, v in enumerate(r)} for r in rows]
+        records = [{f"col{i}": v for i, v in enumerate(r)} for r in rows]
     return {"rows": records, "count": len(records)}
 
 

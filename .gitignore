@@ -29,6 +29,10 @@ venv/
 .ruff_cache/
 .pytest_cache/
 
+# Local-only session/planning notes (never commit)
+starter.md
+check_req.md
+
 # OS / editor
 .DS_Store
 Thumbs.db

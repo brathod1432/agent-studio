@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from .config.loader import load_catalog, load_settings, resolve_active_provider
 from .config.types import AppSettings, ProviderConfig

@@ -7,13 +7,13 @@ its value is never logged or returned.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import Callable, Mapping
 
 from ..config.types import ProviderConfig, RequestSettings
 from ..core.http import HttpResponse, TransportError, join_url, open_http
 from ..core.redact import register_secret_value
-from ..core.secrets import mask_secret, resolve_secret
+from ..core.secrets import ResolvedSecret, mask_secret, resolve_secret
 from .errors import ProviderError, error_from_status, error_from_transport, missing_api_key
 
 HttpOpen = Callable[..., HttpResponse]
@@ -161,7 +161,15 @@ def health_check(
     return _report(config, resolved, api_key_env, overall, checks, models, latency_ms)
 
 
-def _report(config, resolved, api_key_env, overall, checks, models, latency_ms) -> HealthReport:
+def _report(
+    config: ProviderConfig,
+    resolved: ResolvedSecret,
+    api_key_env: str | None,
+    overall: str,
+    checks: list[CheckResult],
+    models: list[ModelInfo],
+    latency_ms: float | None,
+) -> HealthReport:
     masked = resolved.secret.masked() if resolved.secret else mask_secret(None)
     return HealthReport(
         provider_id=config.id,

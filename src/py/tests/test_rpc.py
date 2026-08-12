@@ -50,7 +50,13 @@ class ServeTests(unittest.TestCase):
             "\n".join(
                 [
                     json.dumps({"id": 1, "method": "ping"}),
-                    json.dumps({"id": 2, "method": "tools/call", "params": {"name": "diff.unified", "arguments": {"a": "x\n", "b": "y\n"}}}),
+                    json.dumps(
+                        {
+                            "id": 2,
+                            "method": "tools/call",
+                            "params": {"name": "diff.unified", "arguments": {"a": "x\n", "b": "y\n"}},
+                        }
+                    ),
                     "",
                 ]
             )

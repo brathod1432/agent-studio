@@ -89,3 +89,37 @@ src/clients/cli/            CLI wizard + doctor/status
 src/clients/web/            loopback-only web onboarding server + public/onboard.html
 src/testkit/                mock fetch helpers for tests
 ```
+
+## Polyglot: Python 3.12 runtime (`src/py/agent_studio`)
+The project is intentionally polyglot — a TypeScript orchestration layer plus a
+first-class **Python 3.12 runtime**. Both are **dependency-free at runtime**
+(TS = zero npm deps; Python = standard library only) and share the same on-disk
+formats, so a conversation created by one is readable/resumable by the other.
+
+- **Layout:** `src/py/agent_studio/{core,config,llm,memory,providers,tools,rpc,cli}`,
+  tests in `src/py/tests`. Packaging: `pyproject.toml` (`requires-python >=3.12`,
+  no runtime deps). Every module uses `from __future__ import annotations` for
+  forward compatibility.
+- **What it does:** its own OpenAI-compatible client (Ollama + NVIDIA) with
+  streaming/retry/usage, JSON conversation store (identical schema to TS),
+  ChatAgent (context trim + usage + cancel), a **tools/skills** layer
+  (`code.analyze` via `ast`, `text.stats/summarize`, `data.csv_to_json/json_query`,
+  `diff.unified`, `report.markdown`, `fs.summarize`), and a full CLI
+  (`ask`/`chat`/`doctor`/`status`/`config`/`tools`).
+- **Interop:** a stdio JSON-RPC **tool host** (`python -m agent_studio.rpc.host`,
+  methods `ping`/`tools/list`/`tools/call`, MCP-adjacent) is driven by the TS
+  engine via `src/engine/bridge/pythonBridge.ts` — Python runs as a
+  process-isolated, least-privilege extension.
+
+### Python commands
+```
+npm run test:py        # python -m unittest (stdlib; from src/py)
+npm run test:all       # TS suite + Python suite
+npm run py -- doctor   # python -m agent_studio <cmd>  (ask/chat/doctor/config/tools)
+npm run lint:py        # ruff (dev-only)
+npm run typecheck:py   # mypy --strict (dev-only)
+# direct: cd src/py && python -m agent_studio ask "hello"
+```
+Dev-only Python tooling (`ruff`, `mypy`) is optional (`pip install -e ".[dev]"`),
+mirroring how TS `typecheck` needs dev deps. `docker/` has Node + Python images
+and an Ollama compose stack (authored/validated; build where Docker is available).

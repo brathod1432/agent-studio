@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from agent_studio.core.http import TransportError
 
@@ -28,8 +29,7 @@ class FakeResponse:
         return self._body
 
     def iter_lines(self) -> Iterator[str]:
-        for line in self._sse or []:
-            yield line
+        yield from (self._sse or [])
 
     def close(self) -> None:
         self.closed = True

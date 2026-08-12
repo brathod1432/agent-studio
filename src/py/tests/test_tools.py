@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from agent_studio.tools.base import ToolError, ToolRegistry
+from agent_studio.tools.base import ToolError
 from agent_studio.tools.registry import default_registry
 
 
@@ -36,7 +36,10 @@ class RegistryTests(unittest.TestCase):
 class CodeToolTests(unittest.TestCase):
     def test_analyze_python_source(self) -> None:
         reg = default_registry()
-        src = "import os\nfrom a.b import c\n\ndef foo(x, y):\n    return x\n\nclass Bar:\n    def m(self):\n        pass\n"
+        src = (
+            "import os\nfrom a.b import c\n\ndef foo(x, y):\n    return x\n\n"
+            "class Bar:\n    def m(self):\n        pass\n"
+        )
         out = reg.call("code.analyze", {"source": src})
         self.assertEqual(out["counts"]["functions"], 1)
         self.assertEqual(out["counts"]["classes"], 1)

@@ -8,9 +8,9 @@ files are reported, never fatal. The reader is injectable for testing.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
 
 _REF_RE = re.compile(r'(?:^|\s)@(?:"([^"]+)"|([^\s]+))')
 DEFAULT_MAX_BYTES = 100 * 1024

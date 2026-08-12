@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 from .core.paths import resolve_paths
 

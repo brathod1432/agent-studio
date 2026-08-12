@@ -52,12 +52,21 @@ def summarize_dir(args: dict[str, Any]) -> dict[str, Any]:
                 "lines": _line_count(entry),
             }
         )
-    return {"root": str(root), "file_count": len(files), "total_bytes": total_bytes, "files": files, "truncated": truncated}
+    return {
+        "root": str(root),
+        "file_count": len(files),
+        "total_bytes": total_bytes,
+        "files": files,
+        "truncated": truncated,
+    }
 
 
 FS_SUMMARIZE = Tool(
     name="fs.summarize",
-    description="Summarize files under a directory ('path'): relative path, size, and line count. Read-only; capped by 'max_files'.",
+    description=(
+        "Summarize files under a directory ('path'): relative path, size, and line count. "
+        "Read-only; capped by 'max_files'."
+    ),
     input_schema={
         "type": "object",
         "properties": {"path": {"type": "string"}, "max_files": {"type": "integer"}},

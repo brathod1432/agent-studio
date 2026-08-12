@@ -10,7 +10,8 @@ from __future__ import annotations
 import json
 import random
 import time
-from typing import Any, Callable, Iterable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from ..config.types import ProviderConfig, RequestSettings
 from ..core.http import HttpResponse, TransportError, join_url, open_http
@@ -24,12 +25,12 @@ MAX_BACKOFF_MS = 20_000
 
 
 def _backoff_ms(err: Any, attempt: int, base_ms: int) -> float:
-    from_server = None
+    from_server: float | None = None
     retry_after = getattr(err, "retry_after_seconds", None)
     if retry_after is not None:
-        from_server = retry_after * 1000
+        from_server = float(retry_after) * 1000
     exponential = base_ms * (2**attempt) + random.randint(0, 100)
-    return min(from_server if from_server is not None else exponential, MAX_BACKOFF_MS)
+    return float(min(from_server if from_server is not None else exponential, MAX_BACKOFF_MS))
 
 
 class OpenAICompatibleClient:
@@ -66,7 +67,13 @@ class OpenAICompatibleClient:
         if self.config.api_key_ref and not self._api_key:
             raise missing_api_key(self.config.api_key_ref.replace("env:", "", 1))
 
-    def _body(self, messages: Iterable[ChatMessage], model: str | None, temperature: float | None, stream: bool) -> dict[str, Any]:
+    def _body(
+        self,
+        messages: Iterable[ChatMessage],
+        model: str | None,
+        temperature: float | None,
+        stream: bool,
+    ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": model or self.config.model,
             "messages": [m.to_dict() for m in messages],
@@ -112,7 +119,7 @@ class OpenAICompatibleClient:
                     self._sleep(perr, attempt, should_cancel)
                     attempt += 1
                     continue
-                raise perr
+                raise perr from err
             if resp.status >= 400:
                 perr = error_from_status(resp.status, resp.header("retry-after"), resp.read_text())
                 if self._should_retry(perr, attempt, bool(should_cancel and should_cancel())):
@@ -154,7 +161,7 @@ class OpenAICompatibleClient:
                     self._sleep(perr, attempt, should_cancel)
                     attempt += 1
                     continue
-                raise perr
+                raise perr from err
             if resp.status >= 400:
                 perr = error_from_status(resp.status, resp.header("retry-after"), resp.read_text())
                 if self._should_retry(perr, attempt, False):

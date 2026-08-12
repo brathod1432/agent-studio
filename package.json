@@ -39,7 +39,10 @@
     "test": "node --env-file-if-exists=.env.local --test \"src/**/*.test.ts\"",
     "test:py": "cd src/py && python -m unittest discover -s tests -t . -v",
     "test:all": "npm test && npm run test:py",
-    "typecheck": "tsc --noEmit"
+    "py": "cd src/py && python -m agent_studio",
+    "lint:py": "ruff check src/py",
+    "typecheck": "tsc --noEmit",
+    "typecheck:py": "mypy"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",

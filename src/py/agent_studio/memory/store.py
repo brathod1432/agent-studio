@@ -11,8 +11,9 @@ import json
 import re
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from ..core.paths import resolve_paths
 from ..llm.types import ChatMessage
@@ -24,7 +25,7 @@ _ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 def _now_iso() -> str:
     # e.g. 2026-08-12T14:17:12.914Z  (matches the TS toISOString format)
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return now.strftime("%Y-%m-%dT%H:%M:%S.") + f"{now.microsecond // 1000:03d}Z"
 
 
@@ -39,7 +40,7 @@ class Conversation:
     model: str | None = None
     schema_version: int = SCHEMA_VERSION
 
-    def to_json_obj(self) -> dict:
+    def to_json_obj(self) -> dict[str, Any]:
         return {
             "schemaVersion": SCHEMA_VERSION,
             "id": self.id,
@@ -52,7 +53,7 @@ class Conversation:
         }
 
     @staticmethod
-    def from_json_obj(obj: dict) -> "Conversation":
+    def from_json_obj(obj: dict[str, Any]) -> Conversation:
         return Conversation(
             id=str(obj["id"]),
             title=str(obj.get("title", DEFAULT_TITLE)),
@@ -86,6 +87,13 @@ class SearchResult:
     snippet: str | None = None
 
 
+# Aliases evaluated at module scope (where `list` is the builtin) so the
+# ConversationStore.list method's own return annotation doesn't resolve `list`
+# to the method itself (a name-shadowing quirk under future annotations).
+SummaryList = list[ConversationSummary]
+SearchResultList = list[SearchResult]
+
+
 def derive_title(text: str) -> str:
     clean = re.sub(r"\s+", " ", text).strip()
     if not clean:
@@ -110,7 +118,12 @@ class ConversationStore:
     def _path(self, conv_id: str) -> Path:
         return self._dir() / f"{_safe_id(conv_id)}.json"
 
-    def create(self, provider_id: str | None = None, model: str | None = None, title: str | None = None) -> Conversation:
+    def create(
+        self,
+        provider_id: str | None = None,
+        model: str | None = None,
+        title: str | None = None,
+    ) -> Conversation:
         now = _now_iso()
         return Conversation(
             id=str(uuid.uuid4()),
@@ -161,7 +174,7 @@ class ConversationStore:
             return []
         return [p.stem for p in d.glob("*.json")]
 
-    def list(self) -> list[ConversationSummary]:
+    def list(self) -> SummaryList:
         out: list[ConversationSummary] = []
         for cid in self._iter_ids():
             conv = self.try_load(cid)
@@ -187,7 +200,7 @@ class ConversationStore:
         path.unlink()
         return True
 
-    def search(self, query: str) -> list[SearchResult]:
+    def search(self, query: str) -> SearchResultList:
         q = query.strip().lower()
         if not q:
             return []

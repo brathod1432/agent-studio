@@ -6,15 +6,17 @@ import ast
 from pathlib import Path
 from typing import Any
 
-from .base import Tool, ToolError, _require_str
+from .base import Tool, ToolError
 
 
 def _load_source(args: dict[str, Any]) -> str:
-    if isinstance(args.get("source"), str):
-        return args["source"]
-    if isinstance(args.get("path"), str):
+    source = args.get("source")
+    if isinstance(source, str):
+        return source
+    path = args.get("path")
+    if isinstance(path, str):
         try:
-            return Path(args["path"]).read_text(encoding="utf-8")
+            return Path(path).read_text(encoding="utf-8")
         except OSError as err:
             raise ToolError(f"Could not read file: {err}") from err
     raise ToolError("Provide 'source' (code) or 'path' (file).")

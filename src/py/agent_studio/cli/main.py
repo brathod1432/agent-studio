@@ -11,8 +11,10 @@ import json
 import os
 import signal
 import sys
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
+from types import FrameType
+from typing import TextIO
 
 from ..agent import ChatAgent
 from ..config.loader import (
@@ -22,6 +24,7 @@ from ..config.loader import (
     set_active_model,
     set_active_provider,
 )
+from ..config.types import AppSettings, ProviderConfig
 from ..context import expand_file_references
 from ..core.paths import resolve_paths
 from ..core.secret_scan import describe_secret_kinds, detect_secrets
@@ -29,7 +32,7 @@ from ..core.secrets import load_environment
 from ..factory import create_llm_from_settings
 from ..llm.usage import add_usage, zero_usage
 from ..memory.export import conversation_to_markdown, default_export_filename
-from ..memory.store import ConversationStore
+from ..memory.store import Conversation, ConversationStore, ConversationSummary, SearchResult
 from ..providers.diagnostics import format_error, format_health_report
 from ..providers.errors import ProviderError
 from ..providers.testing import health_check, list_models
@@ -41,7 +44,11 @@ def build_env() -> dict[str, str]:
     return load_environment(os.environ, resolve_paths().project_root)
 
 
-def _apply_file_context(text: str, report_to) -> str:
+def _stdout(text: str) -> None:
+    sys.stdout.write(text)
+
+
+def _apply_file_context(text: str, report_to: TextIO) -> str:
     result = expand_file_references(text)
     for ref in result.refs:
         if ref.ok:
@@ -126,7 +133,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             }
             sys.stdout.write(json.dumps(out, indent=2) + "\n")
         else:
-            agent.run_stream(message, lambda d: sys.stdout.write(d))
+            agent.run_stream(message, _stdout)
             sys.stdout.write("\n")
     except ProviderError as err:
         print(format_error(err), file=sys.stderr)
@@ -234,6 +241,28 @@ HELP = "\n".join(
 )
 
 
+def _stream_with_cancel(agent: ChatAgent, message: str) -> bool:
+    """Stream a reply, installing a SIGINT handler so Ctrl+C cancels (keeping the
+    partial reply) instead of killing the process. Returns whether it cancelled."""
+    cancelled = {"v": False}
+
+    def _on_sigint(_signum: int, _frame: FrameType | None) -> None:
+        cancelled["v"] = True
+
+    previous = None
+    try:
+        previous = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, _on_sigint)
+    except ValueError:
+        previous = None  # not in the main thread
+    try:
+        agent.run_stream(message, _stdout, should_cancel=lambda: cancelled["v"])
+    finally:
+        if previous is not None:
+            signal.signal(signal.SIGINT, previous)
+    return cancelled["v"]
+
+
 def _read_line(prompt: str) -> str | None:
     try:
         sys.stdout.write(prompt)
@@ -264,7 +293,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     max_ctx = settings.max_context_tokens
     interactive = sys.stdin.isatty()
 
-    def make_agent(conv) -> ChatAgent:
+    def make_agent(conv: Conversation) -> ChatAgent:
         return ChatAgent(client, store, conv, max_context_tokens=max_ctx)
 
     conversation = store.create(provider_id=config.id, model=client.model)
@@ -374,23 +403,16 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
         sys.stdout.write("assistant> ")
         sys.stdout.flush()
-        cancelled = {"v": False}
-
-        def _on_sigint(_signum, _frame) -> None:
-            cancelled["v"] = True
-
-        previous = signal.getsignal(signal.SIGINT)
         try:
-            signal.signal(signal.SIGINT, _on_sigint)
-        except ValueError:
-            previous = None  # not in main thread
-        try:
-            agent.run_stream(message, lambda d: sys.stdout.write(d), should_cancel=lambda: cancelled["v"])
+            was_cancelled = _stream_with_cancel(agent, message)
             sys.stdout.write("\n")
-            if cancelled["v"]:
+            if was_cancelled:
                 print("[cancelled — partial reply saved]")
             if agent.last_trimmed_count > 0:
-                print(f"[context] trimmed {agent.last_trimmed_count} older message(s) to fit the context window")
+                print(
+                    f"[context] trimmed {agent.last_trimmed_count} older message(s) "
+                    "to fit the context window"
+                )
             usage = agent.last_usage
             if usage:
                 turns += 1
@@ -407,9 +429,6 @@ def cmd_chat(args: argparse.Namespace) -> int:
             sys.stdout.write("\n")
             print(format_error(err))
             print("")
-        finally:
-            if previous is not None:
-                signal.signal(signal.SIGINT, previous)
 
     print(
         "\nGoodbye. (Ephemeral session — nothing was saved.)"
@@ -419,7 +438,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     return 0
 
 
-def _print_summaries(summaries) -> None:
+def _print_summaries(summaries: list[ConversationSummary]) -> None:
     if not summaries:
         print("  (no saved conversations yet)")
         return
@@ -428,7 +447,7 @@ def _print_summaries(summaries) -> None:
         print(f"     id: {s.id}")
 
 
-def _print_search(results) -> None:
+def _print_search(results: list[SearchResult]) -> None:
     if not results:
         print("  (no matches)")
         return
@@ -438,7 +457,7 @@ def _print_search(results) -> None:
         print(f"     id: {r.id}")
 
 
-def _print_history(conversation) -> None:
+def _print_history(conversation: Conversation) -> None:
     if not conversation.messages:
         return
     print(f'\n--- resuming "{conversation.title}" ({len(conversation.messages)} messages) ---')
@@ -448,7 +467,7 @@ def _print_history(conversation) -> None:
     print("--- end of history ---\n")
 
 
-def _choose_model(config, env: Mapping[str, str], settings) -> str | None:
+def _choose_model(config: ProviderConfig, env: Mapping[str, str], settings: AppSettings) -> str | None:
     try:
         print("Fetching available models…")
         models = list_models(config, env, settings.request)

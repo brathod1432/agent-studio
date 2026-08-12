@@ -7,7 +7,7 @@ that keeps the partial reply.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from .llm.client import OpenAICompatibleClient
 from .llm.types import ChatMessage, ChatResponse, TokenUsage

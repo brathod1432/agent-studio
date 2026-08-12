@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import Any, TextIO
 
 from .. import __version__
 from ..tools.base import ToolError, ToolRegistry
@@ -63,7 +63,11 @@ def _error(req_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
 
 
-def serve(stdin=None, stdout=None, registry: ToolRegistry | None = None) -> int:
+def serve(
+    stdin: TextIO | None = None,
+    stdout: TextIO | None = None,
+    registry: ToolRegistry | None = None,
+) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     registry = registry or default_registry()

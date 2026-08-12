@@ -8,10 +8,10 @@ to the normalized error taxonomy. Only genuine connect/timeout failures raise
 from __future__ import annotations
 
 import json
-import socket
 import urllib.error
 import urllib.request
-from typing import Any, Iterator, Mapping
+from collections.abc import Iterator, Mapping
+from typing import Any
 
 
 def join_url(base_url: str, path: str) -> str:
@@ -35,11 +35,13 @@ class HttpResponse:
         self.status: int = int(getattr(raw, "status", None) or raw.getcode())
 
     def header(self, name: str) -> str | None:
-        return self._raw.headers.get(name)
+        value: str | None = self._raw.headers.get(name)
+        return value
 
     def read_text(self) -> str:
         try:
-            return self._raw.read().decode("utf-8", errors="replace")
+            text: str = self._raw.read().decode("utf-8", errors="replace")
+            return text
         finally:
             self.close()
 
@@ -75,12 +77,12 @@ def open_http(
         return HttpResponse(urllib.request.urlopen(req, timeout=timeout))  # noqa: S310
     except urllib.error.HTTPError as err:  # 4xx/5xx are valid responses here
         return HttpResponse(err)
-    except socket.timeout as err:
-        raise TransportError("timeout", "The request timed out.") from err
     except urllib.error.URLError as err:
-        reason = err.reason
-        if isinstance(reason, socket.timeout) or isinstance(reason, TimeoutError):
+        # socket.timeout is an alias of TimeoutError (3.10+); classify by reason.
+        if isinstance(err.reason, TimeoutError):
             raise TransportError("timeout", "The request timed out.") from err
-        raise TransportError("network", f"Could not reach the endpoint: {reason}") from err
-    except (TimeoutError, ConnectionError) as err:
+        raise TransportError("network", f"Could not reach the endpoint: {err.reason}") from err
+    except TimeoutError as err:
+        raise TransportError("timeout", "The request timed out.") from err
+    except ConnectionError as err:
         raise TransportError("network", f"Could not reach the endpoint: {err}") from err
