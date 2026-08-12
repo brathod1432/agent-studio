@@ -81,19 +81,24 @@ export class ChatAgent implements Agent, StreamingAgent {
     return response.content;
   }
 
-  async runStream(input: string, onDelta: AgentDeltaHandler): Promise<string> {
+  async runStream(input: string, onDelta: AgentDeltaHandler, signal?: AbortSignal): Promise<string> {
     this.#store.append(this.#conversation, { role: 'user', content: input });
     const messages = this.#buildMessages();
     let response;
     if (this.#llm.supportsStreaming()) {
-      response = await this.#llm.chatStream({ messages }, onDelta);
+      response = await this.#llm.chatStream({ messages, signal }, onDelta);
     } else {
       // Fallback: no streaming — emit the full response as a single delta.
-      response = await this.#llm.chat({ messages });
+      response = await this.#llm.chat({ messages, signal });
       if (response.content) onDelta(response.content);
     }
-    this.#store.append(this.#conversation, { role: 'assistant', content: response.content });
-    this.#store.save(this.#conversation); // auto-save, unaffected by streaming
+    // Persist the turn even when cancelled: the user's question and any partial
+    // reply are kept. An empty (fully-cancelled) reply is not appended, but the
+    // user message is still saved so the turn is never silently lost.
+    if (response.content) {
+      this.#store.append(this.#conversation, { role: 'assistant', content: response.content });
+    }
+    this.#store.save(this.#conversation); // auto-save, unaffected by streaming/cancel
     this.#recordUsage(messages, response);
     return response.content;
   }

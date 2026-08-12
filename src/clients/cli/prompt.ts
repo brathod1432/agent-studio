@@ -18,6 +18,12 @@ export interface Prompter {
   readLine(query: string): Promise<string | null>;
   /** True once stdin has reached EOF / the interface has closed. */
   readonly isClosed: boolean;
+  /**
+   * Register a handler for Ctrl+C (SIGINT). Returns an unsubscribe function.
+   * While at least one handler is registered, the default "terminate the
+   * process" behavior is suppressed so callers can cancel gracefully.
+   */
+  onSigint(handler: () => void): () => void;
   close(): void;
 }
 
@@ -104,6 +110,17 @@ export function createPrompter(): Prompter {
     return a === 'y' || a === 'yes';
   };
 
+  const onSigint = (handler: () => void): (() => void) => {
+    // Listen on both the readline interface (raw TTY mode) and the process, so
+    // Ctrl+C is caught whether or not readline is actively reading a line.
+    rl.on('SIGINT', handler);
+    process.on('SIGINT', handler);
+    return () => {
+      rl.off('SIGINT', handler);
+      process.off('SIGINT', handler);
+    };
+  };
+
   return {
     ask,
     askHidden,
@@ -112,6 +129,7 @@ export function createPrompter(): Prompter {
     get isClosed() {
       return closed;
     },
+    onSigint,
     close: () => rl.close(),
   };
 }

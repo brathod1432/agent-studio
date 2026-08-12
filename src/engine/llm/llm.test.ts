@@ -6,6 +6,7 @@ import { providerConfigFromPreset } from '../config/store.ts';
 import type { ProviderConfig, RequestSettings } from '../config/types.ts';
 import {
   abortingFetch,
+  blockingSseFetch,
   chatCompletionResponse,
   jsonResponse,
   recordingFetch,
@@ -108,6 +109,45 @@ test('streaming: usage is undefined when the endpoint sends no usage chunk', asy
   const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: fetch });
   const res = await client.chatStream({ messages: [{ role: 'user', content: 'hi' }] }, () => {});
   assert.equal(res.usage, undefined);
+});
+
+test('streaming: aborting mid-stream returns the partial reply, not an error', async () => {
+  const client = createLLMClient({
+    config: nvidiaConfig(),
+    apiKey: KEY,
+    request: REQUEST,
+    fetchImpl: blockingSseFetch(['Partial answer']),
+  });
+  const controller = new AbortController();
+  const deltas: string[] = [];
+  // Cancel right after the first delta streams in.
+  const res = await client.chatStream(
+    { messages: [{ role: 'user', content: 'hi' }], signal: controller.signal },
+    (d) => {
+      deltas.push(d);
+      controller.abort();
+    },
+  );
+  assert.deepEqual(deltas, ['Partial answer']);
+  assert.equal(res.content, 'Partial answer');
+  assert.equal(res.finishReason, 'cancelled');
+});
+
+test('streaming: a pre-aborted signal yields an empty cancelled response', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const client = createLLMClient({
+    config: nvidiaConfig(),
+    apiKey: KEY,
+    request: REQUEST,
+    fetchImpl: blockingSseFetch(['never seen']),
+  });
+  const res = await client.chatStream(
+    { messages: [{ role: 'user', content: 'hi' }], signal: controller.signal },
+    () => {},
+  );
+  assert.equal(res.content, '');
+  assert.equal(res.finishReason, 'cancelled');
 });
 
 test('runtime errors: normalized taxonomy for missing key, 401, 429, timeout, network, 5xx', async () => {

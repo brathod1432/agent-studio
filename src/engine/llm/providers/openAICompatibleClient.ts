@@ -103,8 +103,11 @@ export class OpenAICompatibleChatClient implements LLMClient {
         url,
         { method: 'POST', headers: this.#headers({ Accept: 'application/json' }), body: this.#body(request, false) },
         this.#request.timeoutMs,
+        request.signal,
       );
     } catch (err) {
+      // A user-initiated cancel yields an empty (but non-error) response.
+      if (request.signal?.aborted) return { content: '', finishReason: 'cancelled' };
       throw errorFromThrown(err);
     }
     if (!res.ok) throw errorFromStatus(res.status, res.headers, await safeText(res));
@@ -128,18 +131,43 @@ export class OpenAICompatibleChatClient implements LLMClient {
   async chatStream(request: ChatRequest, onDelta: StreamDeltaHandler): Promise<ChatResponse> {
     this.#requireKey();
     const url = joinUrl(this.config.baseUrl, 'chat/completions');
+
+    // Streaming needs one signal that (a) aborts on timeout until headers arrive
+    // and (b) keeps honoring an external cancel for the whole body. fetchWithTimeout
+    // clears its linkage after headers, so we manage the controller here instead.
+    const external = request.signal;
+    const controller = new AbortController();
+    const onExternalAbort = (): void => controller.abort();
+    if (external) {
+      if (external.aborted) controller.abort();
+      else external.addEventListener('abort', onExternalAbort, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(), this.#request.timeoutMs);
+    const cleanup = (): void => {
+      clearTimeout(timer);
+      external?.removeEventListener('abort', onExternalAbort);
+    };
+
     let res: Response;
     try {
-      res = await fetchWithTimeout(
-        this.#fetch(),
-        url,
-        { method: 'POST', headers: this.#headers({ Accept: 'text/event-stream' }), body: this.#body(request, true) },
-        this.#request.timeoutMs,
-      );
+      res = await this.#fetch()(url, {
+        method: 'POST',
+        headers: this.#headers({ Accept: 'text/event-stream' }),
+        body: this.#body(request, true),
+        signal: controller.signal,
+      });
     } catch (err) {
+      cleanup();
+      if (external?.aborted) return { content: '', finishReason: 'cancelled' };
       throw errorFromThrown(err);
     }
-    if (!res.ok) throw errorFromStatus(res.status, res.headers, await safeText(res));
+    // Headers received: stop the timeout but keep the external-cancel link so a
+    // Ctrl+C mid-stream still aborts the in-flight body.
+    clearTimeout(timer);
+    if (!res.ok) {
+      external?.removeEventListener('abort', onExternalAbort);
+      throw errorFromStatus(res.status, res.headers, await safeText(res));
+    }
 
     let full = '';
     let finishReason: string | undefined;
@@ -173,7 +201,15 @@ export class OpenAICompatibleChatClient implements LLMClient {
       return false;
     };
 
-    await consumeSse(res, onEvent);
+    try {
+      await consumeSse(res, onEvent);
+    } catch (err) {
+      // Cancelled mid-stream: keep whatever streamed so far.
+      if (external?.aborted) return { content: full, model, finishReason: 'cancelled', usage };
+      throw errorFromThrown(err);
+    } finally {
+      external?.removeEventListener('abort', onExternalAbort);
+    }
     return { content: full, model, finishReason, usage };
   }
 }

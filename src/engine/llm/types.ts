@@ -16,6 +16,12 @@ export interface ChatRequest {
   /** Optional model override; defaults to the configured provider model. */
   model?: string;
   temperature?: number;
+  /**
+   * Optional caller-controlled cancellation. When aborted, streaming stops and
+   * the partial reply so far is returned (finishReason "cancelled") rather than
+   * throwing — so the turn can still be persisted.
+   */
+  signal?: AbortSignal;
 }
 
 export interface TokenUsage {

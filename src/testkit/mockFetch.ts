@@ -57,6 +57,44 @@ export function sseChatResponse(
   });
 }
 
+/**
+ * A fetch whose SSE body emits `deltas`, then blocks until the request's signal
+ * aborts — at which point the body stream errors like a real cancelled fetch.
+ * Use it to test mid-stream cancellation (the client should return the partial).
+ */
+export function blockingSseFetch(deltas: string[], model = 'test-model'): FetchLike {
+  const abortError = (): Error => {
+    const err = new Error('The operation was aborted');
+    err.name = 'AbortError';
+    return err;
+  };
+  return (_input, init) => {
+    const signal = init?.signal;
+    // Like a real fetch: reject up front if the request is already aborted.
+    if (signal?.aborted) return Promise.reject(abortError());
+    const encoder = new TextEncoder();
+    let i = 0;
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (i < deltas.length) {
+          const evt = `data: ${JSON.stringify({ model, choices: [{ delta: { content: deltas[i] } }] })}\n\n`;
+          controller.enqueue(encoder.encode(evt));
+          i++;
+          return;
+        }
+        // Deltas exhausted: wait for cancellation, then error the stream.
+        return new Promise<void>((_resolve, reject) => {
+          if (signal?.aborted) return reject(abortError());
+          signal?.addEventListener('abort', () => reject(abortError()), { once: true });
+        });
+      },
+    });
+    return Promise.resolve(
+      new Response(stream, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+    );
+  };
+}
+
 /** A fetch that never resolves until aborted, then rejects like a timeout. */
 export function abortingFetch(): FetchLike {
   return (_input, init) =>

@@ -9,5 +9,9 @@ export interface Agent {
 export type AgentDeltaHandler = (delta: string) => void;
 
 export interface StreamingAgent extends Agent {
-  runStream(input: string, onDelta: AgentDeltaHandler): Promise<string>;
+  /**
+   * Stream a reply. If `signal` aborts mid-stream, streaming stops, the partial
+   * reply is kept, and the turn is still persisted.
+   */
+  runStream(input: string, onDelta: AgentDeltaHandler, signal?: AbortSignal): Promise<string>;
 }

@@ -153,3 +153,58 @@ test('lastUsage: falls back to a positive estimate when the provider gives none'
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
+
+/** LLM whose stream is cancelled partway, returning a partial reply. */
+function cancellingLLM(partial: string): LLMClient {
+  return {
+    providerId: 'fake',
+    model: 'fake-model',
+    supportsStreaming: () => true,
+    validate: async () => true,
+    chat: async () => ({ content: partial, finishReason: 'cancelled' }),
+    chatStream: async (_req: ChatRequest, onDelta: StreamDeltaHandler) => {
+      if (partial) onDelta(partial);
+      return { content: partial, finishReason: 'cancelled' };
+    },
+  };
+}
+
+test('runStream: a cancelled turn keeps the partial reply and persists it', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-'));
+  try {
+    const store = new ConversationStore({ dataDir });
+    const conversation = store.create({ providerId: 'nvidia', model: 'm' });
+    const agent = new ChatAgent({ llm: cancellingLLM('partial answer'), store, conversation, systemPrompt: 'SYS' });
+    const controller = new AbortController();
+
+    const out = await agent.runStream('my question', () => {}, controller.signal);
+    assert.equal(out, 'partial answer');
+
+    // Persisted to disk: the question AND the partial answer.
+    const reloaded = store.load(conversation.id);
+    assert.equal(reloaded.messages.length, 2);
+    assert.deepEqual(reloaded.messages[0], { role: 'user', content: 'my question' });
+    assert.deepEqual(reloaded.messages[1], { role: 'assistant', content: 'partial answer' });
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('runStream: a turn cancelled before any output still persists the question', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-'));
+  try {
+    const store = new ConversationStore({ dataDir });
+    const conversation = store.create({ providerId: 'nvidia', model: 'm' });
+    const agent = new ChatAgent({ llm: cancellingLLM(''), store, conversation, systemPrompt: 'SYS' });
+
+    const out = await agent.runStream('my question', () => {}, new AbortController().signal);
+    assert.equal(out, '');
+
+    // The question is saved (turn not lost); no empty assistant message added.
+    const reloaded = store.load(conversation.id);
+    assert.equal(reloaded.messages.length, 1);
+    assert.deepEqual(reloaded.messages[0], { role: 'user', content: 'my question' });
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});

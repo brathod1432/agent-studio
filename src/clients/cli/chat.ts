@@ -238,10 +238,17 @@ export async function runChat(): Promise<void> {
       }
 
       // Regular message — stream the assistant reply and auto-save.
+      // A single Ctrl+C cancels the in-flight reply (keeping the partial answer
+      // and persisting the turn) instead of killing the process.
       process.stdout.write('assistant> ');
+      const controller = new AbortController();
+      const unsubscribe = prompt.onSigint(() => controller.abort());
       try {
-        await agent.runStream(input, (delta) => process.stdout.write(delta));
+        await agent.runStream(input, (delta) => process.stdout.write(delta), controller.signal);
         process.stdout.write('\n');
+        if (controller.signal.aborted) {
+          console.log('[cancelled — partial reply saved]');
+        }
         const usage = agent.lastUsage;
         if (usage) {
           turnCount += 1;
@@ -258,6 +265,8 @@ export async function runChat(): Promise<void> {
         } else {
           console.log(`Error: ${err instanceof Error ? err.message : String(err)}\n`);
         }
+      } finally {
+        unsubscribe();
       }
     }
 
