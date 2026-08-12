@@ -1,0 +1,24 @@
+# TypeScript engine + CLI. Node 22 runs the .ts sources directly via native
+# type-stripping (no build step, zero runtime dependencies).
+#
+# Build:  docker build -f docker/Dockerfile.node -t agent-studio-node .
+# Run:    docker run --rm -it --env-file .env.local agent-studio-node doctor
+FROM node:22-slim
+
+WORKDIR /app
+
+# Copy only what the runtime needs (no node_modules — the app has zero runtime deps).
+COPY package.json ./
+COPY config ./config
+COPY src ./src
+COPY tools ./tools
+
+# Drop privileges (the base image ships a non-root "node" user).
+USER node
+
+ENV NODE_ENV=production
+
+# Default to a secret-safe status readout; override the command as needed
+# (e.g. `doctor`, `chat`, `ask "..."`).
+ENTRYPOINT ["node", "--env-file-if-exists=.env.local", "src/clients/cli/index.ts"]
+CMD ["status"]

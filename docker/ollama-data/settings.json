@@ -1,0 +1,16 @@
+{
+  "activeProvider": "ollama",
+  "defaultModel": "llama3.2:1b",
+  "providers": {
+    "ollama": {
+      "id": "ollama",
+      "label": "Ollama",
+      "kind": "openai-compatible",
+      "baseUrl": "http://ollama:11434/v1",
+      "apiKeyRef": null,
+      "model": "llama3.2:1b"
+    }
+  },
+  "request": { "timeoutMs": 60000, "maxRetries": 2, "retryBaseDelayMs": 500 },
+  "maxContextTokens": 16000
+}

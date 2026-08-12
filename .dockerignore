@@ -1,0 +1,25 @@
+# Keep build context small and secret-free.
+.git
+node_modules
+**/__pycache__
+**/*.pyc
+.venv
+venv
+.mypy_cache
+.ruff_cache
+.pytest_cache
+
+# Secrets and local state must never enter an image.
+.env
+.env.*
+!.env.example
+.agentstudio/
+
+# Local-only planning docs (not tracked in git anyway).
+starter.md
+check_req.md
+
+# Editor/OS noise
+.idea/
+.vscode/
+*.log

@@ -1,0 +1,63 @@
+# Local, offline-friendly stack: a local Ollama model server plus the two
+# Agent Studio runtimes pointed at it. Nothing here talks to the cloud unless
+# you configure a hosted provider.
+#
+#   docker compose -f docker/docker-compose.yml up -d ollama
+#   docker compose -f docker/docker-compose.yml run --rm ollama-pull
+#   docker compose -f docker/docker-compose.yml run --rm python doctor
+#   docker compose -f docker/docker-compose.yml run --rm node   doctor
+#
+# The runtimes are configured entirely via environment variables (no settings
+# file needed): AGENT_STUDIO_* overrides point them at the Ollama service.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # One-shot helper to pull the small dev model into the shared volume.
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: "http://ollama:11434"
+    entrypoint: ["ollama", "pull", "llama3.2:1b"]
+    volumes:
+      - ollama-models:/root/.ollama
+
+  python:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.python
+    depends_on:
+      - ollama
+    environment:
+      # A prebuilt settings.json (in ./ollama-data) points the runtime at the
+      # Ollama service; conversations are written back to the same bind mount.
+      AGENT_STUDIO_DATA_DIR: "/data"
+    volumes:
+      - ./ollama-data:/data
+
+  node:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.node
+    depends_on:
+      - ollama
+    environment:
+      AGENT_STUDIO_DATA_DIR: "/data"
+    volumes:
+      - ./ollama-data:/data
+
+volumes:
+  ollama-models:
