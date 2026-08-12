@@ -12,6 +12,7 @@ import os
 import signal
 import sys
 from collections.abc import Mapping
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import FrameType
 from typing import TextIO
@@ -69,6 +70,70 @@ def _apply_file_context(text: str, report_to: TextIO, allow_any: bool = False) -
 def cmd_version(_args: argparse.Namespace) -> int:
     print(f"agent-studio {__version__}")
     return 0
+
+
+def cmd_privacy(_args: argparse.Namespace) -> int:
+    paths = resolve_paths()
+    conv_dir = paths.data_dir / "conversations"
+    store = ConversationStore()
+    count = len(store.list())
+    total = 0
+    if conv_dir.exists():
+        total = sum(f.stat().st_size for f in conv_dir.glob("*.json"))
+    kb = round(total / 1024)
+    print("Where your data lives (all local — nothing is uploaded except prompts you send):")
+    print(f"  Data directory:   {paths.data_dir}")
+    print(f"  Config directory: {paths.config_dir}")
+    exists = "" if paths.settings_file.exists() else " (not created yet)"
+    print(f"  Settings file:    {paths.settings_file}{exists}")
+    print(f"  Conversations:    {count} saved (~{kb} KB) in {conv_dir}")
+    print("")
+    print("Notes:")
+    print("  - Conversations are stored as plaintext JSON. Treat the data dir as sensitive.")
+    print("  - API keys live only in .env.local (referenced by name), never in settings/conversations.")
+    print('  - Use "chat --no-save" for an ephemeral session, "--redact-secrets" to scrub secrets,')
+    print('    and "purge" to delete stored conversations.')
+    return 0
+
+
+def cmd_purge(args: argparse.Namespace) -> int:
+    if not args.all and args.older_than is None:
+        print("Usage: agent-studio-py purge --all | --older-than <days> [--yes]", file=sys.stderr)
+        return 2
+    store = ConversationStore()
+    summaries = store.list()
+    if args.all:
+        targets = summaries
+    else:
+        cutoff = datetime.now(UTC) - timedelta(days=args.older_than)
+        targets = [s for s in summaries if _parse_iso(s.updated_at) < cutoff]
+
+    if not targets:
+        print("Nothing to purge.")
+        return 0
+
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(
+                f"Refusing to delete {len(targets)} conversation(s) without --yes in non-interactive mode.",
+                file=sys.stderr,
+            )
+            return 2
+        ans = input(f"Delete {len(targets)} conversation(s)? This cannot be undone. (y/N) ").strip().lower()
+        if ans not in ("y", "yes"):
+            print("Cancelled. Nothing was deleted.")
+            return 0
+
+    deleted = sum(1 for s in targets if store.delete(s.id))
+    print(f"Deleted {deleted} conversation(s).")
+    return 0
+
+
+def _parse_iso(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return datetime.now(UTC)
 
 
 def cmd_status(_args: argparse.Namespace) -> int:
@@ -517,6 +582,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("version", help="Print the version")
     sub.add_parser("status", help="Show current configuration (secret-safe)")
     sub.add_parser("doctor", help="Provider health check (live)")
+    sub.add_parser("privacy", help="Show where data is stored + guidance")
+
+    purge = sub.add_parser("purge", help="Delete saved conversations")
+    purge.add_argument("--all", action="store_true", help="Delete every saved conversation")
+    purge.add_argument("--older-than", type=int, metavar="DAYS", help="Delete conversations older than N days")
+    purge.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
 
     ask = sub.add_parser("ask", help="One-shot question (prints only the answer)")
     ask.add_argument("prompt", nargs="*", help="The question (stdin is combined as context)")
@@ -579,6 +650,8 @@ def main(argv: list[str] | None = None) -> int:
         "version": cmd_version,
         "status": cmd_status,
         "doctor": cmd_doctor,
+        "privacy": cmd_privacy,
+        "purge": cmd_purge,
         "ask": cmd_ask,
         "chat": cmd_chat,
         "config": cmd_config,

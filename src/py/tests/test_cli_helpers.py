@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import argparse
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from agent_studio.cli.main import cmd_privacy, cmd_purge
 from agent_studio.config.loader import (
     load_catalog,
     load_settings,
@@ -13,6 +17,8 @@ from agent_studio.config.loader import (
 )
 from agent_studio.context import expand_file_references, extract_file_refs, is_sensitive_path
 from agent_studio.core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
+from agent_studio.llm.types import ChatMessage
+from agent_studio.memory.store import ConversationStore
 from agent_studio.prompts import render_system_prompt, render_template
 
 
@@ -104,6 +110,42 @@ class FileSafetyTests(unittest.TestCase):
             res = expand_file_references("read @.env", cwd=root, workspace_root=root, allow_sensitive=True)
             self.assertTrue(res.refs[0].ok)
             self.assertIn("NVIDIA_API_KEY", res.text)
+
+
+class PurgeTests(unittest.TestCase):
+    def test_purge_all_deletes_everything(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                store = ConversationStore()
+                for i in range(3):
+                    conv = store.create()
+                    store.append(conv, ChatMessage("user", f"msg {i}"))
+                    store.save(conv)
+                self.assertEqual(len(store.list()), 3)
+                rc = cmd_purge(argparse.Namespace(all=True, older_than=None, yes=True))
+                self.assertEqual(rc, 0)
+                self.assertEqual(len(ConversationStore().list()), 0)
+
+    def test_purge_requires_a_target_flag(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                rc = cmd_purge(argparse.Namespace(all=False, older_than=None, yes=True))
+                self.assertEqual(rc, 2)
+
+    def test_privacy_runs_and_reports_location(self) -> None:
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    rc = cmd_privacy(argparse.Namespace())
+                self.assertEqual(rc, 0)
+                out = buf.getvalue()
+                self.assertIn("Data directory:", out)
+                # Basename is stable across Windows short/long path forms.
+                self.assertIn(Path(d).name, out)
 
 
 class PromptTests(unittest.TestCase):

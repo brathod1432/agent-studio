@@ -26,6 +26,7 @@ import { createPrompter } from './prompt.ts';
 import { runChat } from './chat.ts';
 import { runConfig } from './config.ts';
 import { runAsk } from './ask.ts';
+import { runPrivacy, runPurge } from './data.ts';
 
 function printBanner(): void {
   console.log('==============================================');
@@ -210,8 +211,14 @@ async function main(): Promise<void> {
     case 'ask':
       await runAsk(process.argv.slice(3));
       break;
+    case 'privacy':
+      runPrivacy();
+      break;
+    case 'purge':
+      await runPurge(process.argv.slice(3));
+      break;
     default:
-      console.log('Usage: agent-studio <onboard|doctor|status|chat|config|ask|version>');
+      console.log('Usage: agent-studio <onboard|doctor|status|chat|config|ask|privacy|purge|version>');
       process.exitCode = 2;
   }
 }
