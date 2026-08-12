@@ -7,8 +7,9 @@
 // Auto-save: every assistant reply is persisted automatically; there is no
 // manual save step. Streaming and non-streaming paths both persist identically.
 
+import { trimMessages } from '../llm/contextWindow.ts';
 import type { ChatMessage, ChatResponse, LLMClient, TokenUsage } from '../llm/types.ts';
-import { estimateUsage, hasTokenCounts } from '../llm/usage.ts';
+import { estimateTokensFromText, estimateUsage, hasTokenCounts } from '../llm/usage.ts';
 import type { ConversationStore } from '../memory/store.ts';
 import type { Conversation } from '../memory/types.ts';
 import { CHAT_SYSTEM, defaultRegistry, type PromptRegistry } from '../prompts/registry.ts';
@@ -22,6 +23,11 @@ export interface ChatAgentOptions {
   prompts?: PromptRegistry;
   /** Override the system prompt text directly (skips the registry). */
   systemPrompt?: string;
+  /**
+   * Max estimated tokens of history to send per turn (0/undefined = unlimited).
+   * Older messages are trimmed from the request only; stored history is intact.
+   */
+  maxContextTokens?: number;
 }
 
 export class ChatAgent implements Agent, StreamingAgent {
@@ -29,13 +35,16 @@ export class ChatAgent implements Agent, StreamingAgent {
   #store: ConversationStore;
   #conversation: Conversation;
   #systemPrompt: string;
+  #maxContextTokens: number;
   #lastUsage?: TokenUsage;
   #lastUsageEstimated = false;
+  #lastTrimmed = 0;
 
   constructor(opts: ChatAgentOptions) {
     this.#llm = opts.llm;
     this.#store = opts.store;
     this.#conversation = opts.conversation;
+    this.#maxContextTokens = opts.maxContextTokens ?? 0;
     this.#systemPrompt =
       opts.systemPrompt ??
       (opts.prompts ?? defaultRegistry()).get(CHAT_SYSTEM).render({ model: opts.llm.model });
@@ -55,9 +64,30 @@ export class ChatAgent implements Agent, StreamingAgent {
     return this.#lastUsageEstimated;
   }
 
-  /** Build the request messages: system prompt + full conversation history. */
+  /** Number of oldest messages trimmed from the last request to fit the context window. */
+  get lastTrimmedCount(): number {
+    return this.#lastTrimmed;
+  }
+
+  /**
+   * Build the request messages: system prompt + conversation history, trimming
+   * the oldest history to fit `maxContextTokens` (the system prompt is always
+   * kept). Trimming only affects the request; stored history is unchanged.
+   */
   #buildMessages(): ChatMessage[] {
-    return [{ role: 'system', content: this.#systemPrompt }, ...this.#conversation.messages];
+    const system: ChatMessage = { role: 'system', content: this.#systemPrompt };
+    if (this.#maxContextTokens <= 0) {
+      this.#lastTrimmed = 0;
+      return [system, ...this.#conversation.messages];
+    }
+    // Reserve room for the system prompt. A computed budget of <= 0 means the
+    // system prompt alone fills the window, so keep only the latest message
+    // (budget 1 → trimMessages keeps just the last). This differs from the
+    // "unlimited" case above (maxContextTokens <= 0).
+    const budget = Math.max(1, this.#maxContextTokens - estimateTokensFromText(this.#systemPrompt));
+    const { messages, dropped } = trimMessages(this.#conversation.messages, budget);
+    this.#lastTrimmed = dropped;
+    return [system, ...messages];
   }
 
   /** Record usage from a response, falling back to a local estimate. */

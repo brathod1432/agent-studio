@@ -154,6 +154,52 @@ test('lastUsage: falls back to a positive estimate when the provider gives none'
   }
 });
 
+test('maxContextTokens: trims old history from the request but keeps system + latest', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-ctx-'));
+  try {
+    const store = new ConversationStore({ dataDir });
+    const conversation = store.create({ providerId: 'nvidia', model: 'm' });
+    // Seed a long history (10 messages of ~40 chars each).
+    for (let i = 0; i < 10; i++) {
+      store.append(conversation, { role: i % 2 === 0 ? 'user' : 'assistant', content: `${i}:` + 'x'.repeat(40) });
+    }
+    const llm = new FakeLLM('reply', false);
+    const agent = new ChatAgent({ llm, store, conversation, systemPrompt: 'SYS', maxContextTokens: 40 });
+
+    await agent.run('newest question');
+
+    const sent = llm.lastRequest!.messages;
+    assert.equal(sent[0]!.role, 'system'); // system prompt always kept
+    assert.equal(sent[sent.length - 1]!.content, 'newest question'); // latest turn kept
+    assert.ok(sent.length < 12, 'older history was trimmed from the request');
+    assert.ok(agent.lastTrimmedCount > 0);
+
+    // Stored history is untouched (full transcript remains on disk).
+    const reloaded = store.load(conversation.id);
+    assert.equal(reloaded.messages.length, 12); // 10 seeded + user + assistant
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('maxContextTokens: 0 (unlimited) sends the full history', async () => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-ctx0-'));
+  try {
+    const store = new ConversationStore({ dataDir });
+    const conversation = store.create({ providerId: 'nvidia', model: 'm' });
+    for (let i = 0; i < 6; i++) store.append(conversation, { role: 'user', content: `m${i}` });
+    const llm = new FakeLLM('reply', false);
+    const agent = new ChatAgent({ llm, store, conversation, systemPrompt: 'SYS', maxContextTokens: 0 });
+
+    await agent.run('q');
+    // system + 6 seeded + 1 new user = 8
+    assert.equal(llm.lastRequest!.messages.length, 8);
+    assert.equal(agent.lastTrimmedCount, 0);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 /** LLM whose stream is cancelled partway, returning a partial reply. */
 function cancellingLLM(partial: string): LLMClient {
   return {

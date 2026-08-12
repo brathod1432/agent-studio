@@ -100,6 +100,7 @@ export {
   addUsage,
   zeroUsage,
 } from './llm/usage.ts';
+export { trimMessages, type TrimResult } from './llm/contextWindow.ts';
 
 export {
   CONVERSATION_SCHEMA_VERSION,

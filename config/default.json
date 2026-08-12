@@ -6,5 +6,6 @@
     "timeoutMs": 30000,
     "maxRetries": 2,
     "retryBaseDelayMs": 500
-  }
+  },
+  "maxContextTokens": 16000
 }

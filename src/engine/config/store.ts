@@ -98,6 +98,7 @@ export function loadSettings(opts: StoreOptions = {}): AppSettings {
     defaultModel: saved.defaultModel ?? defaults.defaultModel,
     providers,
     request: { ...defaults.request, ...(saved.request ?? {}) },
+    maxContextTokens: saved.maxContextTokens ?? defaults.maxContextTokens,
   };
 }
 

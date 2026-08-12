@@ -127,9 +127,10 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
 
   const store = new ConversationStore({ ephemeral });
   const prompt = createPrompter();
+  const maxContextTokens = loadSettings().maxContextTokens;
 
   const makeAgent = (conversation: Conversation): ChatAgent =>
-    new ChatAgent({ llm: client, store, conversation });
+    new ChatAgent({ llm: client, store, conversation, maxContextTokens });
 
   try {
     // Session selection. Ephemeral sessions always start fresh (resuming a
@@ -283,6 +284,9 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
         process.stdout.write('\n');
         if (controller.signal.aborted) {
           console.log('[cancelled — partial reply saved]');
+        }
+        if (agent.lastTrimmedCount > 0) {
+          console.log(`[context] trimmed ${agent.lastTrimmedCount} older message(s) to fit the context window`);
         }
         const usage = agent.lastUsage;
         if (usage) {

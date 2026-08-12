@@ -45,6 +45,8 @@ export interface AppSettings {
   defaultModel: string;
   providers: Record<string, ProviderConfig>;
   request: RequestSettings;
+  /** Max estimated tokens of history to send per turn (0 = unlimited). */
+  maxContextTokens: number;
 }
 
 /** Shape of config/default.json. */
@@ -52,4 +54,6 @@ export interface DefaultConfig {
   activeProvider?: string;
   defaultModel: string;
   request: RequestSettings;
+  /** Max estimated tokens of history to send per turn (0 = unlimited). */
+  maxContextTokens: number;
 }

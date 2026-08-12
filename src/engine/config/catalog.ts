@@ -52,6 +52,7 @@ export function loadDefaultConfig(configDir?: string): DefaultConfig {
       maxRetries: Number(request.maxRetries ?? 2),
       retryBaseDelayMs: Number(request.retryBaseDelayMs ?? 500),
     },
+    maxContextTokens: Number(raw.maxContextTokens ?? 0),
   };
 }
 
