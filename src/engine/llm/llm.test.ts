@@ -88,7 +88,26 @@ test('streaming: chatStream emits deltas and returns the full content', async ()
 
   assert.deepEqual(deltas, ['Hello', ', ', 'world']);
   assert.equal(res.content, 'Hello, world');
-  assert.equal(JSON.parse(String(calls[0]!.init?.body)).stream, true);
+  const body = JSON.parse(String(calls[0]!.init?.body));
+  assert.equal(body.stream, true);
+  // Requests a final usage chunk from OpenAI-compatible endpoints.
+  assert.deepEqual(body.stream_options, { include_usage: true });
+});
+
+test('streaming: captures exact token usage from the final usage chunk', async () => {
+  const { fetch } = recordingFetch(
+    sseChatResponse(['Hi'], 'test-model', { prompt_tokens: 11, completion_tokens: 22, total_tokens: 33 }),
+  );
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: fetch });
+  const res = await client.chatStream({ messages: [{ role: 'user', content: 'hi' }] }, () => {});
+  assert.deepEqual(res.usage, { promptTokens: 11, completionTokens: 22, totalTokens: 33 });
+});
+
+test('streaming: usage is undefined when the endpoint sends no usage chunk', async () => {
+  const { fetch } = recordingFetch(sseChatResponse(['Hi']));
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: fetch });
+  const res = await client.chatStream({ messages: [{ role: 'user', content: 'hi' }] }, () => {});
+  assert.equal(res.usage, undefined);
 });
 
 test('runtime errors: normalized taxonomy for missing key, 401, 429, timeout, network, 5xx', async () => {

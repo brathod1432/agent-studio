@@ -35,12 +35,21 @@ export function chatCompletionResponse(content: string, model = 'test-model'): R
   });
 }
 
-/** Build a Server-Sent-Events streaming chat response from text deltas. */
-export function sseChatResponse(deltas: string[], model = 'test-model'): Response {
+/**
+ * Build a Server-Sent-Events streaming chat response from text deltas.
+ * When `usage` is provided, a final usage-only chunk is appended (as OpenAI-
+ * compatible endpoints do when `stream_options.include_usage` is set).
+ */
+export function sseChatResponse(
+  deltas: string[],
+  model = 'test-model',
+  usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number },
+): Response {
   const events = deltas.map((d) =>
     `data: ${JSON.stringify({ model, choices: [{ delta: { content: d } }] })}`,
   );
   events.push(`data: ${JSON.stringify({ model, choices: [{ delta: {}, finish_reason: 'stop' }] })}`);
+  if (usage) events.push(`data: ${JSON.stringify({ model, choices: [], usage })}`);
   events.push('data: [DONE]');
   return new Response(events.join('\n\n') + '\n\n', {
     status: 200,

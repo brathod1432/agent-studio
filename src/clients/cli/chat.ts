@@ -6,6 +6,7 @@
 // after every assistant reply.
 
 import {
+  addUsage,
   ChatAgent,
   ConversationStore,
   createLLMClientFromSettings,
@@ -17,9 +18,11 @@ import {
   resolveSecret,
   setActiveModel,
   setActiveProvider,
+  zeroUsage,
   type Conversation,
   type ConversationSummary,
   type ResolvedLLM,
+  type TokenUsage,
 } from '../../engine/index.ts';
 import { createPrompter, type Prompter } from './prompt.ts';
 import { chooseModelId, chooseProviderId } from './config.ts';
@@ -39,6 +42,20 @@ function printBanner(): void {
   console.log('==============================================');
   console.log('        Agent Studio — Chat');
   console.log('==============================================');
+}
+
+function fmt(n: number | undefined): string {
+  return n == null ? '?' : String(n);
+}
+
+/** One-line per-turn + session token summary (shown after each reply). */
+function formatUsageLine(turn: TokenUsage, estimated: boolean, session: TokenUsage, turns: number): string {
+  const approx = estimated ? '~' : '';
+  const turnPart = `this turn: prompt ${approx}${fmt(turn.promptTokens)} · completion ${approx}${fmt(
+    turn.completionTokens,
+  )} · total ${approx}${fmt(turn.totalTokens)}${estimated ? ' (est)' : ''}`;
+  const sessionPart = `session: total ${fmt(session.totalTokens)} across ${turns} turn${turns === 1 ? '' : 's'}`;
+  return `[tokens] ${turnPart}   ${sessionPart}`;
 }
 
 function printSummaries(summaries: ConversationSummary[]): void {
@@ -128,6 +145,10 @@ export async function runChat(): Promise<void> {
       config = next.config;
       agent = makeAgent(conversation);
     };
+
+    // Running token totals for this CLI session (across turns and model switches).
+    let sessionUsage: TokenUsage = zeroUsage();
+    let turnCount = 0;
 
     // Chat loop.
     for (;;) {
@@ -220,7 +241,14 @@ export async function runChat(): Promise<void> {
       process.stdout.write('assistant> ');
       try {
         await agent.runStream(input, (delta) => process.stdout.write(delta));
-        process.stdout.write('\n\n');
+        process.stdout.write('\n');
+        const usage = agent.lastUsage;
+        if (usage) {
+          turnCount += 1;
+          sessionUsage = addUsage(sessionUsage, usage);
+          console.log(formatUsageLine(usage, agent.lastUsageEstimated, sessionUsage, turnCount));
+        }
+        console.log('');
       } catch (err) {
         process.stdout.write('\n');
         if (err instanceof ProviderError) {

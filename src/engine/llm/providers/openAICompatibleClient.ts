@@ -76,6 +76,9 @@ export class OpenAICompatibleChatClient implements LLMClient {
       messages: request.messages,
       stream,
     };
+    // Ask OpenAI-compatible endpoints to include a final usage chunk while
+    // streaming. Endpoints that don't support this simply ignore the field.
+    if (stream) body.stream_options = { include_usage: true };
     if (request.temperature != null) body.temperature = request.temperature;
     return JSON.stringify(body);
   }
@@ -141,6 +144,7 @@ export class OpenAICompatibleChatClient implements LLMClient {
     let full = '';
     let finishReason: string | undefined;
     let model: string | undefined;
+    let usage: ChatResponse['usage'];
 
     const onEvent = (payload: string): boolean => {
       if (payload === '[DONE]') return true;
@@ -151,6 +155,14 @@ export class OpenAICompatibleChatClient implements LLMClient {
         return false;
       }
       if (parsed.model) model = parsed.model;
+      // Final usage chunk (from stream_options.include_usage) has empty choices.
+      if (parsed.usage) {
+        usage = {
+          promptTokens: parsed.usage.prompt_tokens,
+          completionTokens: parsed.usage.completion_tokens,
+          totalTokens: parsed.usage.total_tokens,
+        };
+      }
       const choice = parsed.choices?.[0];
       const delta = choice?.delta?.content ?? choice?.message?.content ?? '';
       if (choice?.finish_reason) finishReason = choice.finish_reason;
@@ -162,7 +174,7 @@ export class OpenAICompatibleChatClient implements LLMClient {
     };
 
     await consumeSse(res, onEvent);
-    return { content: full, model, finishReason };
+    return { content: full, model, finishReason, usage };
   }
 }
 

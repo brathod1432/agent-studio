@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import type { ChatRequest, ChatResponse, LLMClient, StreamDeltaHandler } from '../llm/types.ts';
+import type { ChatRequest, ChatResponse, LLMClient, StreamDeltaHandler, TokenUsage } from '../llm/types.ts';
 import { ConversationStore } from '../memory/store.ts';
 import { ChatAgent } from './chatAgent.ts';
 
@@ -15,10 +15,12 @@ class FakeLLM implements LLMClient {
   lastRequest?: ChatRequest;
   #streaming: boolean;
   #reply: string;
+  #usage?: TokenUsage;
 
-  constructor(reply = 'assistant reply', streaming = true) {
+  constructor(reply = 'assistant reply', streaming = true, usage?: TokenUsage) {
     this.#reply = reply;
     this.#streaming = streaming;
+    this.#usage = usage;
   }
 
   supportsStreaming(): boolean {
@@ -29,19 +31,19 @@ class FakeLLM implements LLMClient {
   }
   async chat(request: ChatRequest): Promise<ChatResponse> {
     this.lastRequest = request;
-    return { content: this.#reply };
+    return { content: this.#reply, usage: this.#usage };
   }
   async chatStream(request: ChatRequest, onDelta: StreamDeltaHandler): Promise<ChatResponse> {
     this.lastRequest = request;
     for (const word of this.#reply.split(' ')) onDelta(word + ' ');
-    return { content: this.#reply };
+    return { content: this.#reply, usage: this.#usage };
   }
 }
 
-function setup(streaming = true, reply = 'assistant reply') {
+function setup(streaming = true, reply = 'assistant reply', usage?: TokenUsage) {
   const dataDir = mkdtempSync(join(tmpdir(), 'as-agent-'));
   const store = new ConversationStore({ dataDir });
-  const llm = new FakeLLM(reply, streaming);
+  const llm = new FakeLLM(reply, streaming, usage);
   const conversation = store.create({ providerId: 'nvidia', model: llm.model });
   const agent = new ChatAgent({ llm, store, conversation, systemPrompt: 'SYS' });
   return { dataDir, store, llm, conversation, agent };
@@ -119,6 +121,34 @@ test('conversation history accumulates across turns and is persisted', async () 
     );
     // Second turn's request included prior history.
     assert.equal((store.load(conversation.id)).messages[2]?.content, 'second');
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('lastUsage: reports exact provider usage when available', async () => {
+  const usage = { promptTokens: 7, completionTokens: 9, totalTokens: 16 };
+  const { dataDir, agent } = setup(true, 'one two three', usage);
+  try {
+    await agent.runStream('go', () => {});
+    assert.deepEqual(agent.lastUsage, usage);
+    assert.equal(agent.lastUsageEstimated, false);
+  } finally {
+    rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('lastUsage: falls back to a positive estimate when the provider gives none', async () => {
+  const { dataDir, agent } = setup(true, 'a fairly wordy assistant reply here');
+  try {
+    await agent.runStream('a decent length question', () => {});
+    assert.equal(agent.lastUsageEstimated, true);
+    assert.ok((agent.lastUsage?.promptTokens ?? 0) > 0);
+    assert.ok((agent.lastUsage?.completionTokens ?? 0) > 0);
+    assert.equal(
+      agent.lastUsage?.totalTokens,
+      (agent.lastUsage?.promptTokens ?? 0) + (agent.lastUsage?.completionTokens ?? 0),
+    );
   } finally {
     rmSync(dataDir, { recursive: true, force: true });
   }

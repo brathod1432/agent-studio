@@ -82,6 +82,13 @@ export {
 } from './llm/factory.ts';
 export { OpenAICompatibleChatClient } from './llm/providers/openAICompatibleClient.ts';
 export { NvidiaClient } from './llm/providers/nvidiaClient.ts';
+export {
+  estimateTokensFromText,
+  estimateUsage,
+  hasTokenCounts,
+  addUsage,
+  zeroUsage,
+} from './llm/usage.ts';
 
 export {
   CONVERSATION_SCHEMA_VERSION,

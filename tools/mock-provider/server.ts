@@ -56,7 +56,7 @@ function lastUserMessage(messages: Array<{ role?: string; content?: string }>): 
   return '';
 }
 
-function streamCompletion(res: ServerResponse, model: string, text: string): void {
+function streamCompletion(res: ServerResponse, model: string, text: string, includeUsage: boolean): void {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-store',
@@ -72,6 +72,12 @@ function streamCompletion(res: ServerResponse, model: string, text: string): voi
       setTimeout(tick, 15);
     } else {
       res.write(`data: ${JSON.stringify({ model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+      // Final usage chunk when the client requested stream_options.include_usage.
+      if (includeUsage) {
+        res.write(
+          `data: ${JSON.stringify({ model, choices: [], usage: { prompt_tokens: 10, completion_tokens: 12, total_tokens: 22 } })}\n\n`,
+        );
+      }
       res.write('data: [DONE]\n\n');
       res.end();
     }
@@ -103,7 +109,13 @@ const server = createServer((req, res) => {
       }
       const messages = (body.messages as Array<{ role?: string; content?: string }>) ?? [];
       const reply = `You said: "${lastUserMessage(messages)}". This is a mock ${model} reply.`;
-      if (body.stream === true) return streamCompletion(res, model, reply);
+      if (body.stream === true) {
+        const includeUsage =
+          typeof body.stream_options === 'object' &&
+          body.stream_options !== null &&
+          (body.stream_options as { include_usage?: unknown }).include_usage === true;
+        return streamCompletion(res, model, reply, includeUsage);
+      }
       return send(res, 200, {
         id: 'chatcmpl-mock',
         object: 'chat.completion',
