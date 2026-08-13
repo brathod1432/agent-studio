@@ -95,6 +95,12 @@ supported (line-buffered; `/exit` or EOF ends the session).
 - `ask|chat --system "..."` — set the system prompt / persona for the session.
 - `chat|ask --redact-secrets` — scrub secret-looking content before sending/persisting.
 - `chat|ask --allow-any-file` — relax the `@file` safety guards (see below).
+- `config get [key]` / `config set <key> <int>` — view/tune `maxOutputTokens`,
+  `maxContextTokens`, and `request.timeoutMs/maxRetries/retryBaseDelayMs` without
+  editing JSON.
+- In chat: **`/tools`** lists built-in tools and **`/run <name> <json>`** runs one
+  and injects its output as conversation context (Python runs tools directly;
+  TS runs them via the Python bridge).
 
 ## Security posture (user-facing)
 - **`@file` is confined to the workspace root** and refuses sensitive files
@@ -116,6 +122,11 @@ supported (line-buffered; `/exit` or EOF ends the session).
   (reporting `skipped_sensitive`). Both accept `allow_sensitive=true` to override.
 - **Output cap:** `--max-tokens` / `maxOutputTokens` bound reply length as a
   denial-of-wallet / runaway-generation control.
+- **`@file` / included content is framed as untrusted data** (an explicit note
+  tells the model to treat file contents as data, not instructions) — a
+  prompt-injection mitigation.
+- **`doctor` git-hygiene:** warns if `.env.local` is tracked by git (with the
+  `git rm --cached` fix) or not git-ignored.
 
 ## Structure
 ```
