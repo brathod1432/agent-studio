@@ -13,6 +13,7 @@ import os
 import signal
 import sys
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import FrameType
@@ -25,6 +26,7 @@ from ..config.loader import (
     load_catalog,
     load_settings,
     resolve_active_provider,
+    save_settings,
     set_active_model,
     set_active_provider,
 )
@@ -397,8 +399,70 @@ def cmd_config(args: argparse.Namespace) -> int:
             print(str(err), file=sys.stderr)
             return 1
         return 0
-    print("Usage: config [show | model <id> | provider <id>]", file=sys.stderr)
+    if sub == "get":
+        if not args.value:
+            for key in _TUNABLE_KEYS:
+                print(f"  {key} = {_get_tunable(settings, key)}")
+            return 0
+        if args.value not in _TUNABLE_KEYS:
+            print(f'Unknown key "{args.value}". Known: {", ".join(_TUNABLE_KEYS)}', file=sys.stderr)
+            return 2
+        print(_get_tunable(settings, args.value))
+        return 0
+    if sub == "set":
+        if not args.value or args.extra is None:
+            print(f"Usage: config set <key> <int>. Keys: {', '.join(_TUNABLE_KEYS)}", file=sys.stderr)
+            return 2
+        if args.value not in _TUNABLE_KEYS:
+            print(f'Unknown key "{args.value}". Known: {", ".join(_TUNABLE_KEYS)}', file=sys.stderr)
+            return 2
+        try:
+            number = int(args.extra)
+        except ValueError:
+            print(f'"{args.extra}" is not an integer.', file=sys.stderr)
+            return 2
+        if number < 0:
+            print("Value must be >= 0.", file=sys.stderr)
+            return 2
+        _set_tunable(settings, args.value, number)
+        save_settings(settings)
+        print(f"{args.value} = {number}")
+        return 0
+    print("Usage: config [show | model <id> | provider <id> | get [key] | set <key> <int>]", file=sys.stderr)
     return 2
+
+
+# Integer tunables settable via `config get/set` (camelCase as on disk).
+_TUNABLE_KEYS = (
+    "maxOutputTokens",
+    "maxContextTokens",
+    "request.timeoutMs",
+    "request.maxRetries",
+    "request.retryBaseDelayMs",
+)
+
+
+def _get_tunable(settings: AppSettings, key: str) -> int:
+    return {
+        "maxOutputTokens": settings.max_output_tokens,
+        "maxContextTokens": settings.max_context_tokens,
+        "request.timeoutMs": settings.request.timeout_ms,
+        "request.maxRetries": settings.request.max_retries,
+        "request.retryBaseDelayMs": settings.request.retry_base_delay_ms,
+    }[key]
+
+
+def _set_tunable(settings: AppSettings, key: str, value: int) -> None:
+    if key == "maxOutputTokens":
+        settings.max_output_tokens = value
+    elif key == "maxContextTokens":
+        settings.max_context_tokens = value
+    elif key == "request.timeoutMs":
+        settings.request = replace(settings.request, timeout_ms=value)
+    elif key == "request.maxRetries":
+        settings.request = replace(settings.request, max_retries=value)
+    elif key == "request.retryBaseDelayMs":
+        settings.request = replace(settings.request, retry_base_delay_ms=value)
 
 
 # --------------------------------------------------------------------------
@@ -780,9 +844,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scrub secret-looking content from each message before sending/persisting",
     )
 
-    cfg = sub.add_parser("config", help="View/change provider and model")
-    cfg.add_argument("subcommand", nargs="?", choices=["show", "model", "provider"])
-    cfg.add_argument("value", nargs="?")
+    cfg = sub.add_parser("config", help="View/change provider, model, and tunables")
+    cfg.add_argument("subcommand", nargs="?", choices=["show", "model", "provider", "get", "set"])
+    cfg.add_argument("value", nargs="?", help="Provider/model id, or a tunable key for get/set")
+    cfg.add_argument("extra", nargs="?", help="New value (for set)")
 
     tools = sub.add_parser("tools", help="List or run built-in tools")
     tools.add_argument("action", nargs="?", choices=["list", "run"])

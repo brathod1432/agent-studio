@@ -13,13 +13,64 @@ import {
   loadSettings,
   ProviderError,
   resolveActiveProvider,
+  saveSettings,
   setActiveModel,
   setActiveProvider,
+  type AppSettings,
   type ModelInfo,
   type ProviderConfig,
   type ProviderCatalog,
 } from '../../engine/index.ts';
 import { createPrompter, type Prompter } from './prompt.ts';
+
+/** Integer tunables settable via `config get/set` (camelCase as on disk). */
+export const TUNABLE_KEYS = [
+  'maxOutputTokens',
+  'maxContextTokens',
+  'request.timeoutMs',
+  'request.maxRetries',
+  'request.retryBaseDelayMs',
+] as const;
+export type TunableKey = (typeof TUNABLE_KEYS)[number];
+
+export function isTunableKey(key: string): key is TunableKey {
+  return (TUNABLE_KEYS as readonly string[]).includes(key);
+}
+
+export function readTunable(settings: AppSettings, key: TunableKey): number {
+  switch (key) {
+    case 'maxOutputTokens':
+      return settings.maxOutputTokens;
+    case 'maxContextTokens':
+      return settings.maxContextTokens;
+    case 'request.timeoutMs':
+      return settings.request.timeoutMs;
+    case 'request.maxRetries':
+      return settings.request.maxRetries;
+    case 'request.retryBaseDelayMs':
+      return settings.request.retryBaseDelayMs;
+  }
+}
+
+export function applyTunable(settings: AppSettings, key: TunableKey, value: number): void {
+  switch (key) {
+    case 'maxOutputTokens':
+      settings.maxOutputTokens = value;
+      break;
+    case 'maxContextTokens':
+      settings.maxContextTokens = value;
+      break;
+    case 'request.timeoutMs':
+      settings.request.timeoutMs = value;
+      break;
+    case 'request.maxRetries':
+      settings.request.maxRetries = value;
+      break;
+    case 'request.retryBaseDelayMs':
+      settings.request.retryBaseDelayMs = value;
+      break;
+  }
+}
 
 /** Map a user's answer (1-based index or exact id) to an id from the list. */
 export function resolveChoice(answer: string, ids: string[]): string | undefined {
@@ -186,6 +237,48 @@ export async function runConfig(args: string[]): Promise<void> {
     return;
   }
 
-  console.log('Usage: config [show | model [<id>] | provider [<id>]]');
+  if (sub === 'get') {
+    const settings = loadSettings();
+    const key = rest[0];
+    if (!key) {
+      for (const k of TUNABLE_KEYS) console.log(`  ${k} = ${readTunable(settings, k)}`);
+      return;
+    }
+    if (!isTunableKey(key)) {
+      console.log(`Unknown key "${key}". Known: ${TUNABLE_KEYS.join(', ')}`);
+      process.exitCode = 2;
+      return;
+    }
+    console.log(String(readTunable(settings, key)));
+    return;
+  }
+
+  if (sub === 'set') {
+    const key = rest[0];
+    const raw = rest[1];
+    if (!key || raw == null) {
+      console.log(`Usage: config set <key> <int>. Keys: ${TUNABLE_KEYS.join(', ')}`);
+      process.exitCode = 2;
+      return;
+    }
+    if (!isTunableKey(key)) {
+      console.log(`Unknown key "${key}". Known: ${TUNABLE_KEYS.join(', ')}`);
+      process.exitCode = 2;
+      return;
+    }
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value < 0) {
+      console.log(`"${raw}" is not a non-negative integer.`);
+      process.exitCode = 2;
+      return;
+    }
+    const settings = loadSettings();
+    applyTunable(settings, key, value);
+    saveSettings(settings);
+    console.log(`${key} = ${value}`);
+    return;
+  }
+
+  console.log('Usage: config [show | model [<id>] | provider [<id>] | get [key] | set <key> <int>]');
   process.exitCode = 2;
 }

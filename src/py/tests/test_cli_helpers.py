@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from agent_studio.cli.main import cmd_export, cmd_history, cmd_privacy, cmd_purge, cmd_show
+from agent_studio.cli.main import cmd_config, cmd_export, cmd_history, cmd_privacy, cmd_purge, cmd_show
 from agent_studio.config.loader import (
     configure_provider,
     load_catalog,
@@ -273,6 +273,37 @@ class OnboardConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(ValueError):
                 configure_provider("nope", data_dir=Path(d))
+
+
+class ConfigTunableTests(unittest.TestCase):
+    def test_set_and_get_tunables_persist(self) -> None:
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                rc = cmd_config(argparse.Namespace(subcommand="set", value="maxOutputTokens", extra="512"))
+                self.assertEqual(rc, 0)
+                self.assertEqual(load_settings(warn=False).max_output_tokens, 512)
+
+                rc = cmd_config(argparse.Namespace(subcommand="set", value="request.timeoutMs", extra="60000"))
+                self.assertEqual(rc, 0)
+                self.assertEqual(load_settings(warn=False).request.timeout_ms, 60000)
+
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    cmd_config(argparse.Namespace(subcommand="get", value="maxOutputTokens"))
+                self.assertIn("512", buf.getvalue())
+
+    def test_set_rejects_unknown_key_and_non_int(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                self.assertEqual(
+                    cmd_config(argparse.Namespace(subcommand="set", value="bogus", extra="1")), 2
+                )
+                self.assertEqual(
+                    cmd_config(argparse.Namespace(subcommand="set", value="maxOutputTokens", extra="x")), 2
+                )
 
 
 class ConfigWriterTests(unittest.TestCase):
