@@ -1,0 +1,10 @@
+{
+  "id": "code-reviewer",
+  "name": "Code Reviewer",
+  "description": "Static review of Python source: AST-based metrics plus heuristic findings, rendered as a Markdown report. Deterministic and read-only.",
+  "workflow": "pipeline",
+  "pipeline": "code_review",
+  "tools": ["code.analyze", "fs.summarize", "report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 8 },
+  "promptFile": "prompt.md"
+}

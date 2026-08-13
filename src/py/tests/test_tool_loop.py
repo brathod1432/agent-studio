@@ -4,8 +4,8 @@ import json
 import unittest
 from typing import Any
 
+from agent_studio.agents.tool_loop import run_tool_loop, tool_schema
 from agent_studio.llm.types import ChatResponse, ToolCall
-from agent_studio.tool_loop import run_tool_loop, tool_schema
 
 
 def _call(name: str, args: dict[str, Any], cid: str = "c1") -> ToolCall:

@@ -16,7 +16,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from .llm.types import ChatResponse
+from ..llm.types import ChatResponse
 
 # chat(messages, tools) -> ChatResponse (with .content and .tool_calls)
 LLMFn = Callable[[list[dict[str, Any]], list[dict[str, Any]]], ChatResponse]

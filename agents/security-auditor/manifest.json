@@ -1,0 +1,10 @@
+{
+  "id": "security-auditor",
+  "name": "Security Auditor",
+  "description": "Scan a directory for exposed secrets and sensitive files, and check git hygiene. Deterministic, read-only, secret-safe (never prints secret values).",
+  "workflow": "pipeline",
+  "pipeline": "security_audit",
+  "tools": ["fs.summarize", "secrets.scan_text", "report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 8 },
+  "promptFile": "prompt.md"
+}

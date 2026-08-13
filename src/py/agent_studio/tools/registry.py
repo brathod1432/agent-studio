@@ -8,6 +8,7 @@ from .data_tools import DATA_CSV_TO_JSON, DATA_JSON_QUERY
 from .diff_tools import DIFF_UNIFIED
 from .fs_tools import FS_SUMMARIZE
 from .report_tools import REPORT_MARKDOWN
+from .security_tools import SECRETS_SCAN_TEXT
 from .text_tools import TEXT_STATS, TEXT_SUMMARIZE
 
 _ALL = [
@@ -19,6 +20,7 @@ _ALL = [
     DIFF_UNIFIED,
     REPORT_MARKDOWN,
     FS_SUMMARIZE,
+    SECRETS_SCAN_TEXT,
 ]
 
 

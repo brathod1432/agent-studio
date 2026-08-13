@@ -1,0 +1,9 @@
+{
+  "id": "research-summarizer",
+  "name": "Research Summarizer",
+  "description": "Summarize long text or files into key points, using extractive-summary and stats tools to stay grounded. Read-only.",
+  "workflow": "agentic",
+  "tools": ["text.summarize", "text.stats", "fs.summarize"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 5 },
+  "promptFile": "prompt.md"
+}

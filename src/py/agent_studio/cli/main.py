@@ -21,6 +21,7 @@ from typing import Any, TextIO
 
 from .. import __version__
 from ..agent import ChatAgent
+from ..agents.tool_loop import run_tool_loop, tool_schema
 from ..config.loader import (
     configure_provider,
     load_catalog,
@@ -47,7 +48,6 @@ from ..prompts import render_system_prompt
 from ..providers.diagnostics import format_error, format_health_report
 from ..providers.errors import ProviderError
 from ..providers.testing import health_check, list_models
-from ..tool_loop import run_tool_loop, tool_schema
 from ..tools.base import ToolError
 from ..tools.registry import default_registry
 

@@ -24,9 +24,17 @@ class Tool:
     description: str
     input_schema: dict[str, Any]
     handler: ToolHandler
+    # All built-in tools are read-only (no writes/exec). Write-capable tools
+    # would set this False; agent policies with readOnly=True refuse them.
+    read_only: bool = True
 
     def descriptor(self) -> dict[str, Any]:
-        return {"name": self.name, "description": self.description, "inputSchema": self.input_schema}
+        return {
+            "name": self.name,
+            "description": self.description,
+            "inputSchema": self.input_schema,
+            "readOnly": self.read_only,
+        }
 
 
 class ToolRegistry:

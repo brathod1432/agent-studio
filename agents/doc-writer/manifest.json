@@ -1,0 +1,9 @@
+{
+  "id": "doc-writer",
+  "name": "Doc Writer",
+  "description": "Draft clear documentation from code and context, using analysis/summary tools to ground the writing. Read-only.",
+  "workflow": "agentic",
+  "tools": ["code.analyze", "fs.summarize", "text.summarize", "report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 6 },
+  "promptFile": "prompt.md"
+}

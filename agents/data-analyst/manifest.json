@@ -1,0 +1,9 @@
+{
+  "id": "data-analyst",
+  "name": "Data Analyst",
+  "description": "Answer questions over CSV/JSON you provide, using data tools to parse and query before reasoning. Read-only.",
+  "workflow": "agentic",
+  "tools": ["data.csv_to_json", "data.json_query", "text.stats"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 6 },
+  "promptFile": "prompt.md"
+}
