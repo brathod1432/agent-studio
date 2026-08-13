@@ -324,7 +324,13 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     store = ConversationStore(ephemeral=True)
     conversation = store.create(provider_id=resolved.config.id, model=effective_model)
-    agent = ChatAgent(resolved.client, store, conversation, max_context_tokens=resolved.settings.max_context_tokens)
+    agent = ChatAgent(
+        resolved.client,
+        store,
+        conversation,
+        system_prompt=getattr(args, "system", None),
+        max_context_tokens=resolved.settings.max_context_tokens,
+    )
     try:
         if args.json:
             answer = agent.run(message, model=model, temperature=temperature, max_tokens=max_tokens)
@@ -506,8 +512,10 @@ def cmd_chat(args: argparse.Namespace) -> int:
     )
     interactive = sys.stdin.isatty()
 
+    system_prompt = getattr(args, "system", None)
+
     def make_agent(conv: Conversation) -> ChatAgent:
-        return ChatAgent(client, store, conv, max_context_tokens=max_ctx)
+        return ChatAgent(client, store, conv, system_prompt=system_prompt, max_context_tokens=max_ctx)
 
     conversation = store.create(provider_id=config.id, model=client.model)
     print("Started a new conversation.\n")
@@ -742,6 +750,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--model", help="Override the model for this call only")
     ask.add_argument("--temperature", type=float, help="Override the temperature for this call only")
     ask.add_argument("--max-tokens", type=int, help="Cap generated tokens (overrides the config default)")
+    ask.add_argument("--system", help="Override the system prompt / persona for this call")
     ask.add_argument(
         "--allow-any-file",
         action="store_true",
@@ -756,6 +765,7 @@ def build_parser() -> argparse.ArgumentParser:
     chat = sub.add_parser("chat", help="Interactive conversational agent")
     chat.add_argument("--no-save", action="store_true", help="Ephemeral session (nothing written to disk)")
     chat.add_argument("--max-tokens", type=int, help="Cap generated tokens per reply (overrides the config default)")
+    chat.add_argument("--system", help="Override the system prompt / persona for the session")
     chat.add_argument(
         "--allow-any-file",
         action="store_true",

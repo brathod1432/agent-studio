@@ -206,7 +206,10 @@ async function main(): Promise<void> {
       const mtInline = chatArgs.find((a) => a.startsWith('--max-tokens='));
       const mtRaw = mtInline ? mtInline.slice('--max-tokens='.length) : mtIdx >= 0 ? chatArgs[mtIdx + 1] : undefined;
       const maxTokens = mtRaw != null && Number.isFinite(Number(mtRaw)) ? Number(mtRaw) : undefined;
-      await runChat({ ephemeral, allowAnyFile, redactSecrets, maxTokens });
+      const sysIdx = chatArgs.findIndex((a) => a === '--system');
+      const sysInline = chatArgs.find((a) => a.startsWith('--system='));
+      const system = sysInline ? sysInline.slice('--system='.length) : sysIdx >= 0 ? chatArgs[sysIdx + 1] : undefined;
+      await runChat({ ephemeral, allowAnyFile, redactSecrets, maxTokens, system });
       break;
     }
     case 'config':

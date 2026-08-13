@@ -64,6 +64,16 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(client.last_kwargs.get("temperature"), 0.0)
             self.assertEqual(client.last_kwargs.get("max_tokens"), 64)
 
+    def test_custom_system_prompt_is_sent(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            client = FakeClient("ok")
+            store = ConversationStore(data_dir=Path(d))
+            conv = store.create()
+            agent = ChatAgent(client, store, conv, system_prompt="You are a strict reviewer.")
+            agent.run("review this")
+            self.assertEqual(client.last_messages[0].role, "system")
+            self.assertEqual(client.last_messages[0].content, "You are a strict reviewer.")
+
     def test_exact_usage_vs_estimate(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             client = FakeClient("one two three", usage=TokenUsage(7, 9, 16))

@@ -116,6 +116,8 @@ export interface RunChatOptions {
   redactSecrets?: boolean;
   /** Cap generated tokens per reply (overrides the configured default). */
   maxTokens?: number;
+  /** Override the system prompt / persona for the session. */
+  system?: string;
 }
 
 export async function runChat(opts: RunChatOptions = {}): Promise<void> {
@@ -163,7 +165,7 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
     opts.maxTokens ?? (loadedSettings.maxOutputTokens > 0 ? loadedSettings.maxOutputTokens : undefined);
 
   const makeAgent = (conversation: Conversation): ChatAgent =>
-    new ChatAgent({ llm: client, store, conversation, maxContextTokens });
+    new ChatAgent({ llm: client, store, conversation, maxContextTokens, systemPrompt: opts.system });
 
   try {
     // Session selection. Ephemeral sessions always start fresh (resuming a

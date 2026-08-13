@@ -10,9 +10,12 @@ test('parseAskArgs: extracts --json and joins the remaining prompt', () => {
     model: undefined,
     temperature: undefined,
     maxTokens: undefined,
+    system: undefined,
     allowAnyFile: false,
     redact: false,
   });
+  assert.equal(parseAskArgs(['--system', 'be terse', 'hi']).system, 'be terse');
+  assert.equal(parseAskArgs(['--system=act as a reviewer', 'hi']).system, 'act as a reviewer');
   assert.equal(parseAskArgs(['--max-tokens', '128', 'hi']).maxTokens, 128);
   assert.equal(parseAskArgs(['--max-tokens=256', 'hi']).maxTokens, 256);
   assert.equal(parseAskArgs(['--json', 'why', 'sky', 'blue']).json, true);

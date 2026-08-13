@@ -27,6 +27,7 @@ export interface AskArgs {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  system?: string;
   allowAnyFile: boolean;
   redact: boolean;
 }
@@ -39,6 +40,7 @@ export function parseAskArgs(argv: string[]): AskArgs {
   let model: string | undefined;
   let temperature: number | undefined;
   let maxTokens: number | undefined;
+  let system: string | undefined;
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -52,11 +54,13 @@ export function parseAskArgs(argv: string[]): AskArgs {
     else if (a?.startsWith('--temperature=')) temperature = Number(a.slice('--temperature='.length));
     else if (a === '--max-tokens') maxTokens = Number(argv[++i]);
     else if (a?.startsWith('--max-tokens=')) maxTokens = Number(a.slice('--max-tokens='.length));
+    else if (a === '--system') system = argv[++i];
+    else if (a?.startsWith('--system=')) system = a.slice('--system='.length);
     else parts.push(a);
   }
   if (temperature != null && Number.isNaN(temperature)) temperature = undefined;
   if (maxTokens != null && !Number.isFinite(maxTokens)) maxTokens = undefined;
-  return { json, prompt: parts.join(' ').trim(), model, temperature, maxTokens, allowAnyFile, redact };
+  return { json, prompt: parts.join(' ').trim(), model, temperature, maxTokens, system, allowAnyFile, redact };
 }
 
 /**
@@ -78,7 +82,8 @@ async function readStdin(): Promise<string> {
 }
 
 export async function runAsk(argv: string[]): Promise<void> {
-  const { json, prompt: promptArg, model, temperature, maxTokens, allowAnyFile, redact } = parseAskArgs(argv);
+  const { json, prompt: promptArg, model, temperature, maxTokens, system, allowAnyFile, redact } =
+    parseAskArgs(argv);
   const stdin = await readStdin();
   const combined = combineInput(promptArg, stdin);
 
@@ -116,7 +121,7 @@ export async function runAsk(argv: string[]): Promise<void> {
   // One-shot is ephemeral: build a throwaway conversation that is never written.
   const store = new ConversationStore({ ephemeral: true });
   const conversation = store.create({ providerId: config.id, model: effectiveModel });
-  const agent = new ChatAgent({ llm: client, store, conversation });
+  const agent = new ChatAgent({ llm: client, store, conversation, systemPrompt: system });
 
   try {
     if (json) {
