@@ -17,7 +17,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import FrameType
-from typing import TextIO
+from typing import Any, TextIO
 
 from .. import __version__
 from ..agent import ChatAgent
@@ -38,13 +38,16 @@ from ..core.paths import resolve_paths
 from ..core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from ..core.secrets import load_environment
 from ..factory import create_llm_from_settings
-from ..llm.types import ChatMessage
+from ..llm.client import OpenAICompatibleClient
+from ..llm.types import ChatMessage, ChatResponse
 from ..llm.usage import add_usage, zero_usage
 from ..memory.export import conversation_to_markdown, default_export_filename
 from ..memory.store import Conversation, ConversationStore, ConversationSummary, SearchResult
+from ..prompts import render_system_prompt
 from ..providers.diagnostics import format_error, format_health_report
 from ..providers.errors import ProviderError
 from ..providers.testing import health_check, list_models
+from ..tool_loop import run_tool_loop, tool_schema
 from ..tools.base import ToolError
 from ..tools.registry import default_registry
 
@@ -519,11 +522,66 @@ HELP = "\n".join(
         "  /model     Change the model (/model, or /model <id>)",
         "  /tools     List built-in tools",
         "  /run       Run a tool and add its output as context (/run <name> <json>)",
+        "  /agent     Toggle agentic tool-calling (/agent on|off)",
         "  /exit      Quit",
         "",
         'Tip: reference a file with @path (e.g. "explain @src/app.py") to add it as context.',
     ]
 )
+
+
+def _run_agent_turn(
+    client: OpenAICompatibleClient,
+    store: ConversationStore,
+    conversation: Conversation,
+    system_text: str,
+    message: str,
+    *,
+    max_tokens: int | None,
+    max_steps: int,
+    auto_approve: bool,
+    interactive: bool,
+) -> None:
+    """Run one agentic (tool-calling) turn: the model may call tools, gated by
+    approval, until it produces a final answer."""
+    registry = default_registry()
+    tools = [tool_schema(d) for d in registry.list()]
+
+    store.append(conversation, ChatMessage("user", message))
+    api_messages = [{"role": "system", "content": system_text}] + [m.to_dict() for m in conversation.messages]
+
+    def llm(msgs: list[dict[str, Any]], offered: list[dict[str, Any]]) -> ChatResponse:
+        return client.chat_with_tools(msgs, offered, max_tokens=max_tokens)
+
+    def approve(name: str, tool_args: dict[str, Any]) -> bool:
+        if auto_approve or not interactive:
+            return auto_approve  # non-interactive without --auto-approve => deny
+        ans = input(f"  Run tool {name} with {json.dumps(tool_args)}? (y/N) ").strip().lower()
+        return ans in ("y", "yes")
+
+    def on_event(kind: str, detail: str) -> None:
+        if kind == "call":
+            print(f"  \u2192 tool: {detail}")
+        elif kind == "denied":
+            print(f"  \u2717 denied: {detail}")
+        elif kind == "error":
+            print(f"  ! tool error: {detail}")
+
+    result = run_tool_loop(
+        llm,
+        api_messages,
+        tools,
+        registry.call,
+        approve=None if auto_approve else approve,
+        on_event=on_event,
+        max_steps=max_steps,
+    )
+    if result.content:
+        store.append(conversation, ChatMessage("assistant", result.content))
+    store.save(conversation)
+    print(f"assistant> {result.content}")
+    note = "" if result.stopped_reason == "final" else " (stopped at step budget)"
+    print(f"[agent] {result.tool_calls_made} tool call(s), {result.steps} step(s){note}\n")
 
 
 def _stream_with_cancel(agent: ChatAgent, message: str, max_tokens: int | None = None) -> bool:
@@ -583,6 +641,13 @@ def cmd_chat(args: argparse.Namespace) -> int:
     interactive = sys.stdin.isatty()
 
     system_prompt = getattr(args, "system", None)
+    agent_mode = bool(getattr(args, "agent", False))
+    auto_approve = bool(getattr(args, "auto_approve", False))
+    max_steps = getattr(args, "max_steps", None) or 6
+    system_text = system_prompt or render_system_prompt(client.model)
+    if agent_mode:
+        print(f"Agent mode ON — the model may call tools (max {max_steps} steps/turn).")
+        print("Approval: " + ("auto" if auto_approve else "you'll be asked per call") + ".  Type /agent to toggle.\n")
 
     def make_agent(conv: Conversation) -> ChatAgent:
         return ChatAgent(client, store, conv, system_prompt=system_prompt, max_context_tokens=max_ctx)
@@ -650,6 +715,11 @@ def cmd_chat(args: argparse.Namespace) -> int:
                     print("Usage: /search <query>\n")
                     continue
                 _print_search(store.search(rest))
+                continue
+            if cmd == "agent":
+                arg = rest.strip().lower()
+                agent_mode = arg != "off" if arg in ("", "on", "off") else agent_mode
+                print(f"Agent mode is now {'ON' if agent_mode else 'OFF'}.\n")
                 continue
             if cmd == "tools":
                 for descriptor in default_registry().list():
@@ -729,6 +799,24 @@ def cmd_chat(args: argparse.Namespace) -> int:
                     continue
             else:
                 print("  (continuing; run interactively to be prompted)\n")
+
+        if agent_mode:
+            try:
+                _run_agent_turn(
+                    client,
+                    store,
+                    conversation,
+                    system_text,
+                    message,
+                    max_tokens=max_tokens,
+                    max_steps=max_steps,
+                    auto_approve=auto_approve,
+                    interactive=interactive,
+                )
+            except ProviderError as err:
+                print(format_error(err))
+                print("")
+            continue
 
         sys.stdout.write("assistant> ")
         sys.stdout.flush()
@@ -869,6 +957,9 @@ def build_parser() -> argparse.ArgumentParser:
     chat.add_argument("--no-save", action="store_true", help="Ephemeral session (nothing written to disk)")
     chat.add_argument("--max-tokens", type=int, help="Cap generated tokens per reply (overrides the config default)")
     chat.add_argument("--system", help="Override the system prompt / persona for the session")
+    chat.add_argument("--agent", action="store_true", help="Enable agentic tool-calling (model may call tools)")
+    chat.add_argument("--auto-approve", action="store_true", help="Auto-approve tool calls in agent mode (no prompt)")
+    chat.add_argument("--max-steps", type=int, help="Max tool-call steps per turn in agent mode (default 6)")
     chat.add_argument(
         "--allow-any-file",
         action="store_true",
