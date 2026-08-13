@@ -18,6 +18,7 @@ from agent_studio.config.loader import (
 )
 from agent_studio.context import expand_file_references, extract_file_refs, is_sensitive_path
 from agent_studio.core.env_file import upsert_env_var
+from agent_studio.core.git_hygiene import check_env_file, env_file_warnings
 from agent_studio.core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from agent_studio.llm.types import ChatMessage
 from agent_studio.memory.store import ConversationStore
@@ -206,6 +207,21 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(render_template("{{missing}}"), "")
         rendered = render_system_prompt("nvidia/model-x")
         self.assertIn("nvidia/model-x", rendered)
+
+
+class GitHygieneTests(unittest.TestCase):
+    def test_env_file_warnings_logic(self) -> None:
+        self.assertEqual(env_file_warnings(exists=False, tracked=False, ignored=False), [])
+        tracked = env_file_warnings(exists=True, tracked=True, ignored=True)
+        self.assertEqual(len(tracked), 1)
+        self.assertIn("TRACKED by git", tracked[0])
+        not_ignored = env_file_warnings(exists=True, tracked=False, ignored=False)
+        self.assertIn("not git-ignored", not_ignored[0])
+        self.assertEqual(env_file_warnings(exists=True, tracked=False, ignored=True), [])
+
+    def test_check_env_file_no_file_no_warnings(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            self.assertEqual(check_env_file(Path(d)), [])
 
 
 class EnvFileTests(unittest.TestCase):

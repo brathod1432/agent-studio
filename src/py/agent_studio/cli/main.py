@@ -31,6 +31,7 @@ from ..config.loader import (
 from ..config.types import AppSettings, ProviderConfig
 from ..context import expand_file_references
 from ..core.env_file import upsert_env_var
+from ..core.git_hygiene import check_env_file
 from ..core.paths import resolve_paths
 from ..core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from ..core.secrets import load_environment
@@ -197,6 +198,8 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f'Running health check for "{active.label}"…\n')
     report = health_check(active, env, settings.request)
     print(format_health_report(report))
+    for warning in check_env_file(resolve_paths().project_root):
+        print(f"\n\u26a0 Security: {warning}")
     return 1 if report.overall == "error" else 0
 
 

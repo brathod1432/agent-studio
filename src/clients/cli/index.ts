@@ -10,6 +10,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import {
+  checkEnvFile,
   formatHealthReport,
   healthCheck,
   isFirstRun,
@@ -156,6 +157,9 @@ async function runDoctor(): Promise<void> {
   console.log(`Running health check for "${active.label}"…\n`);
   const report = await healthCheck(active, { request: settings.request });
   console.log(formatHealthReport(report));
+  for (const warning of checkEnvFile(resolvePaths().projectRoot)) {
+    console.log(`\n⚠ Security: ${warning}`);
+  }
   process.exitCode = report.overall === 'error' ? 1 : 0;
 }
 
