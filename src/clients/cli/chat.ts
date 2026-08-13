@@ -10,11 +10,15 @@ import { writeFileSync } from 'node:fs';
 import {
   addUsage,
   ChatAgent,
+  CHAT_SYSTEM,
   ConversationStore,
   conversationToMarkdown,
   createLLMClientFromSettings,
   createPythonBridge,
   defaultExportFilename,
+  defaultRegistry,
+  runToolLoop,
+  toolSchema,
   describeSecretKinds,
   detectSecrets,
   formatError,
@@ -31,6 +35,7 @@ import {
   type ConversationSearchResult,
   type ConversationSummary,
   type PythonBridge,
+  type RawMessage,
   type ResolvedLLM,
   type TokenUsage,
 } from '../../engine/index.ts';
@@ -52,6 +57,7 @@ const HELP = [
   '  /provider  Switch provider (/provider, or /provider <id>)',
   '  /tools     List built-in tools (run via the Python bridge)',
   '  /run       Run a tool and add its output as context (/run <name> <json>)',
+  '  /agent     Toggle agentic tool-calling (/agent on|off)',
   '  /exit      Quit',
   '',
   'Tip: reference a file with @path (e.g. "explain @src/app.ts") to add it as context.',
@@ -122,6 +128,12 @@ export interface RunChatOptions {
   maxTokens?: number;
   /** Override the system prompt / persona for the session. */
   system?: string;
+  /** Enable agentic tool-calling (model may call tools). */
+  agent?: boolean;
+  /** Auto-approve tool calls in agent mode (no per-call prompt). */
+  autoApprove?: boolean;
+  /** Max tool-call steps per turn in agent mode (default 6). */
+  maxSteps?: number;
 }
 
 export async function runChat(opts: RunChatOptions = {}): Promise<void> {
@@ -171,9 +183,50 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
   const makeAgent = (conversation: Conversation): ChatAgent =>
     new ChatAgent({ llm: client, store, conversation, maxContextTokens, systemPrompt: opts.system });
 
-  // The Python tool host is spawned lazily on first /tools or /run and reused.
+  // The Python tool host is spawned lazily on first /tools, /run, or agent turn.
   let bridge: PythonBridge | undefined;
   const getBridge = (): PythonBridge => (bridge ??= createPythonBridge());
+
+  // Agentic tool-calling state.
+  let agentMode = Boolean(opts.agent);
+  const autoApprove = Boolean(opts.autoApprove);
+  const maxSteps = opts.maxSteps && opts.maxSteps > 0 ? opts.maxSteps : 6;
+  const systemText = opts.system ?? defaultRegistry().get(CHAT_SYSTEM).render({ model: client.model });
+  if (agentMode) {
+    console.log(`Agent mode ON — the model may call tools (max ${maxSteps} steps/turn).`);
+    console.log(`Approval: ${autoApprove ? 'auto' : "you'll be asked per call"}.  Type /agent to toggle.\n`);
+  }
+
+  const runAgentTurn = async (conv: Conversation, message: string): Promise<void> => {
+    const tools = (await getBridge().listTools()).map(toolSchema);
+    store.append(conv, { role: 'user', content: message });
+    const apiMessages: RawMessage[] = [
+      { role: 'system', content: systemText },
+      ...conv.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+    const result = await runToolLoop(
+      (msgs, offered) => client.chatWithTools({ messages: msgs, tools: offered, maxTokens }),
+      apiMessages,
+      tools,
+      (name, args) => getBridge().callTool(name, args),
+      {
+        approve: autoApprove
+          ? undefined
+          : (name, args) => prompt.confirm(`  Run tool ${name} with ${JSON.stringify(args)}?`, false),
+        onEvent: (kind, detail) => {
+          if (kind === 'call') console.log(`  → tool: ${detail}`);
+          else if (kind === 'denied') console.log(`  ✗ denied: ${detail}`);
+          else if (kind === 'error') console.log(`  ! tool error: ${detail}`);
+        },
+        maxSteps,
+      },
+    );
+    if (result.content) store.append(conv, { role: 'assistant', content: result.content });
+    store.save(conv);
+    console.log(`assistant> ${result.content}`);
+    const note = result.stoppedReason === 'final' ? '' : ' (stopped at step budget)';
+    console.log(`[agent] ${result.toolCallsMade} tool call(s), ${result.steps} step(s)${note}\n`);
+  };
 
   try {
     // Session selection. Ephemeral sessions always start fresh (resuming a
@@ -342,6 +395,12 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
           }
           continue;
         }
+        if (cmd === 'agent') {
+          const arg = rest.join(' ').trim().toLowerCase();
+          if (arg === '' || arg === 'on' || arg === 'off') agentMode = arg !== 'off';
+          console.log(`Agent mode is now ${agentMode ? 'ON' : 'OFF'}.\n`);
+          continue;
+        }
         if (cmd === 'tools') {
           try {
             const tools = await getBridge().listTools();
@@ -418,6 +477,18 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
         } else {
           console.log('  (continuing; run interactively to be prompted before sending)\n');
         }
+      }
+
+      // Agent mode: let the model call tools (non-streaming) then answer.
+      if (agentMode) {
+        try {
+          await runAgentTurn(conversation, message);
+        } catch (err) {
+          if (err instanceof ProviderError) console.log(formatError(err, config.apiKeyRef?.replace(/^env:/, '')));
+          else console.log(`Error: ${err instanceof Error ? err.message : String(err)}`);
+          console.log('');
+        }
+        continue;
       }
 
       // Regular message — stream the assistant reply and auto-save.

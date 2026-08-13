@@ -213,7 +213,13 @@ async function main(): Promise<void> {
       const sysIdx = chatArgs.findIndex((a) => a === '--system');
       const sysInline = chatArgs.find((a) => a.startsWith('--system='));
       const system = sysInline ? sysInline.slice('--system='.length) : sysIdx >= 0 ? chatArgs[sysIdx + 1] : undefined;
-      await runChat({ ephemeral, allowAnyFile, redactSecrets, maxTokens, system });
+      const agent = chatArgs.includes('--agent');
+      const autoApprove = chatArgs.includes('--auto-approve');
+      const msIdx = chatArgs.findIndex((a) => a === '--max-steps');
+      const msInline = chatArgs.find((a) => a.startsWith('--max-steps='));
+      const msRaw = msInline ? msInline.slice('--max-steps='.length) : msIdx >= 0 ? chatArgs[msIdx + 1] : undefined;
+      const maxSteps = msRaw != null && Number.isInteger(Number(msRaw)) ? Number(msRaw) : undefined;
+      await runChat({ ephemeral, allowAnyFile, redactSecrets, maxTokens, system, agent, autoApprove, maxSteps });
       break;
     }
     case 'config':
