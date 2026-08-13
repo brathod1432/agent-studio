@@ -9,6 +9,7 @@ from unittest import mock
 
 from agent_studio.cli.main import cmd_privacy, cmd_purge
 from agent_studio.config.loader import (
+    configure_provider,
     load_catalog,
     load_settings,
     resolve_active_provider,
@@ -16,6 +17,7 @@ from agent_studio.config.loader import (
     set_active_provider,
 )
 from agent_studio.context import expand_file_references, extract_file_refs, is_sensitive_path
+from agent_studio.core.env_file import upsert_env_var
 from agent_studio.core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from agent_studio.llm.types import ChatMessage
 from agent_studio.memory.store import ConversationStore
@@ -154,6 +156,57 @@ class PromptTests(unittest.TestCase):
         self.assertEqual(render_template("{{missing}}"), "")
         rendered = render_system_prompt("nvidia/model-x")
         self.assertIn("nvidia/model-x", rendered)
+
+
+class EnvFileTests(unittest.TestCase):
+    def test_upsert_inserts_and_updates_without_touching_other_lines(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ".env.local"
+            p.write_text("# comment\nOTHER=keep\n", encoding="utf-8")
+            upsert_env_var(p, "NVIDIA_API_KEY", "abc123")
+            text = p.read_text(encoding="utf-8")
+            self.assertIn("OTHER=keep", text)
+            self.assertIn("NVIDIA_API_KEY=abc123", text)
+            # Update in place (no duplicate line).
+            upsert_env_var(p, "NVIDIA_API_KEY", "xyz789")
+            text = p.read_text(encoding="utf-8")
+            self.assertNotIn("abc123", text)
+            self.assertEqual(text.count("NVIDIA_API_KEY="), 1)
+
+    def test_created_file_is_owner_only_on_posix(self) -> None:
+        import stat
+
+        if os.name != "posix":
+            self.skipTest("chmod bits are not meaningful on Windows")
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / ".env.local"
+            upsert_env_var(p, "K", "v")
+            self.assertEqual(stat.S_IMODE(p.stat().st_mode), 0o600)
+
+
+class OnboardConfigTests(unittest.TestCase):
+    def test_configure_provider_sets_active_base_url_and_key_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            data = Path(d)
+            settings = configure_provider(
+                "ollama",
+                model="llama3.2:1b",
+                base_url="http://localhost:11434/v1",
+                api_key_env="OLLAMA_KEY",
+                data_dir=data,
+            )
+            self.assertEqual(settings.active_provider, "ollama")
+            cfg = settings.providers["ollama"]
+            self.assertEqual(cfg.model, "llama3.2:1b")
+            self.assertEqual(cfg.base_url, "http://localhost:11434/v1")
+            self.assertEqual(cfg.api_key_ref, "env:OLLAMA_KEY")
+            raw = (data / "settings.json").read_text(encoding="utf-8")
+            self.assertNotIn("nvapi-", raw)  # never a key value
+
+    def test_configure_provider_rejects_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):
+                configure_provider("nope", data_dir=Path(d))
 
 
 class ConfigWriterTests(unittest.TestCase):

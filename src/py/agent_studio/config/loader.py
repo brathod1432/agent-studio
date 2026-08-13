@@ -258,6 +258,40 @@ def set_active_provider(
     return settings
 
 
+def configure_provider(
+    provider_id: str,
+    *,
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key_env: str | None = None,
+    data_dir: Path | None = None,
+    config_dir: Path | None = None,
+) -> AppSettings:
+    """Set the active provider and persist, applying optional base-URL / model /
+    api-key-env overrides. Used by onboarding. Never stores a key value."""
+    catalog = load_catalog(config_dir)
+    settings = load_settings(config_dir=config_dir, data_dir=data_dir, warn=False)
+    existing = settings.providers.get(provider_id)
+    preset = catalog.providers.get(provider_id)
+    if existing is None and preset is None:
+        raise ValueError(f'Unknown provider "{provider_id}".')
+    if existing is None and preset is not None:
+        cfg = provider_config_from_preset(preset, model)
+        settings.providers[provider_id] = cfg
+    else:
+        assert existing is not None
+        cfg = existing
+        if model:
+            cfg.model = model
+    if base_url:
+        cfg.base_url = base_url
+    if api_key_env:
+        cfg.api_key_ref = f"env:{api_key_env}"
+    settings.active_provider = provider_id
+    save_settings(settings, data_dir)
+    return settings
+
+
 def resolve_active_provider(
     settings: AppSettings, catalog: ProviderCatalog
 ) -> ProviderConfig | None:

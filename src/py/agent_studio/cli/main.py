@@ -7,6 +7,7 @@ conversation files. Run: ``python -m agent_studio <command>``.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import signal
@@ -20,6 +21,7 @@ from typing import TextIO
 from .. import __version__
 from ..agent import ChatAgent
 from ..config.loader import (
+    configure_provider,
     load_catalog,
     load_settings,
     resolve_active_provider,
@@ -28,6 +30,7 @@ from ..config.loader import (
 )
 from ..config.types import AppSettings, ProviderConfig
 from ..context import expand_file_references
+from ..core.env_file import upsert_env_var
 from ..core.paths import resolve_paths
 from ..core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from ..core.secrets import load_environment
@@ -159,6 +162,92 @@ def cmd_doctor(_args: argparse.Namespace) -> int:
     print(f'Running health check for "{active.label}"…\n')
     report = health_check(active, env, settings.request)
     print(format_health_report(report))
+    return 1 if report.overall == "error" else 0
+
+
+# --------------------------------------------------------------------------
+# onboard (guided first-run setup)
+# --------------------------------------------------------------------------
+def cmd_onboard(args: argparse.Namespace) -> int:
+    catalog = load_catalog()
+    presets = list(catalog.providers.values())
+    interactive = sys.stdin.isatty() and not args.provider
+
+    # 1) Provider
+    provider_id = args.provider
+    if not provider_id:
+        if not interactive:
+            print("Provide --provider <id> (non-interactive). Available:", file=sys.stderr)
+            for p in presets:
+                print(f"  {p.id}  —  {p.label}", file=sys.stderr)
+            return 2
+        print("Choose a provider:")
+        for i, p in enumerate(presets, 1):
+            print(f"  {i}. {p.id}  —  {p.label}")
+        raw = input("Provider (number or id): ").strip()
+        provider_id = presets[int(raw) - 1].id if raw.isdigit() and 1 <= int(raw) <= len(presets) else raw
+    preset = catalog.providers.get(provider_id)
+    if preset is None:
+        print(f'Unknown provider "{provider_id}".', file=sys.stderr)
+        return 2
+
+    # 2) Base URL
+    base_url = args.base_url
+    if base_url is None and interactive:
+        entered = input(f"Base URL [{preset.base_url}]: ").strip()
+        base_url = entered or None
+
+    # 3) API key
+    api_key_env = args.api_key_env or preset.api_key_env or None
+    if preset.requires_api_key:
+        env_path = resolve_paths().project_root / ".env.local"
+        if args.api_key:
+            upsert_env_var(env_path, api_key_env or "API_KEY", args.api_key)
+            print(f"Saved key to {env_path} as {api_key_env} (owner-only).")
+        elif interactive:
+            print(f"\nThis provider needs an API key (stored only in {env_path} as {api_key_env}).")
+            choice = input("  [1] enter it now  [2] it's already set in my environment  (default 2): ").strip()
+            if choice == "1":
+                key = getpass.getpass("  Paste key (input hidden): ").strip()
+                if key:
+                    upsert_env_var(env_path, api_key_env or "API_KEY", key)
+                    print(f"  Saved to {env_path} (owner-only). It is never stored in settings.")
+
+    # 4) Persist provider selection (model defaults to preset default for now).
+    configure_provider(provider_id, model=args.model, base_url=base_url, api_key_env=api_key_env)
+
+    # 5) Optionally pick a model from a live list.
+    env = build_env()
+    settings = load_settings(warn=False)
+    active = resolve_active_provider(settings, catalog)
+    assert active is not None
+    if not args.model and interactive:
+        try:
+            print("\nFetching available models…")
+            models = list_models(active, env, settings.request)
+            for i, m in enumerate(models, 1):
+                mark = "  (default)" if m.id == active.model else ""
+                print(f"  {i}. {m.id}{mark}")
+            raw = input(f"\nModel (number or id) [{active.model}]: ").strip()
+            chosen = ""
+            if raw.isdigit() and 1 <= int(raw) <= len(models):
+                chosen = models[int(raw) - 1].id
+            elif raw:
+                chosen = raw
+            if chosen and chosen != active.model:
+                set_active_model(chosen)
+                settings = load_settings(warn=False)
+                active = resolve_active_provider(settings, catalog)
+                assert active is not None
+        except ProviderError as err:
+            print(format_error(err))
+
+    # 6) Test + report.
+    assert active is not None
+    print(f'\nRunning health check for "{active.label}"…\n')
+    report = health_check(active, build_env(), settings.request)
+    print(format_health_report(report))
+    print("\nSaved. You can now run: agent-studio-py chat   (or: doctor, ask, status)")
     return 1 if report.overall == "error" else 0
 
 
@@ -584,6 +673,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="Provider health check (live)")
     sub.add_parser("privacy", help="Show where data is stored + guidance")
 
+    onb = sub.add_parser("onboard", help="Guided first-run setup (provider, key, model)")
+    onb.add_argument("--provider", help="Provider id (non-interactive)")
+    onb.add_argument("--model", help="Model id")
+    onb.add_argument("--base-url", help="Override the provider base URL")
+    onb.add_argument("--api-key-env", help="Env var name that holds the API key")
+    onb.add_argument("--api-key", help="API key value (written to .env.local; not stored in settings)")
+
     purge = sub.add_parser("purge", help="Delete saved conversations")
     purge.add_argument("--all", action="store_true", help="Delete every saved conversation")
     purge.add_argument("--older-than", type=int, metavar="DAYS", help="Delete conversations older than N days")
@@ -650,6 +746,7 @@ def main(argv: list[str] | None = None) -> int:
         "version": cmd_version,
         "status": cmd_status,
         "doctor": cmd_doctor,
+        "onboard": cmd_onboard,
         "privacy": cmd_privacy,
         "purge": cmd_purge,
         "ask": cmd_ask,
