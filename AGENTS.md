@@ -101,6 +101,13 @@ supported (line-buffered; `/exit` or EOF ends the session).
 - In chat: **`/tools`** lists built-in tools and **`/run <name> <json>`** runs one
   and injects its output as conversation context (Python runs tools directly;
   TS runs them via the Python bridge).
+- **Agentic tool-calling:** `chat --agent [--auto-approve] [--max-steps N]` (and
+  the `/agent` toggle) lets the model *decide* when to call tools. The loop
+  (`tool_loop.py` / `agents/toolLoop.ts`) offers OpenAI `tools`, executes the
+  model's requested calls behind a **per-call approval gate** (unless
+  `--auto-approve`), feeds results back, and repeats up to a **step budget**.
+  Python executes tools directly; TS executes them through the Python bridge.
+  Tool errors are surfaced back to the model rather than crashing the turn.
 
 ## Security posture (user-facing)
 - **`@file` is confined to the workspace root** and refuses sensitive files
