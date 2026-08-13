@@ -118,6 +118,29 @@ class FsToolTests(unittest.TestCase):
         with self.assertRaises(ToolError):
             default_registry().call("fs.summarize", {"path": "/no/such/dir/here/xyz"})
 
+    def test_skips_sensitive_files_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "app.py").write_text("print('x')\n", encoding="utf-8")
+            (root / ".env").write_text("NVIDIA_API_KEY=secret\n", encoding="utf-8")
+            out = default_registry().call("fs.summarize", {"path": str(root)})
+            paths = {f["path"] for f in out["files"]}
+            self.assertIn("app.py", paths)
+            self.assertNotIn(".env", paths)  # sensitive file hidden
+            self.assertEqual(out["skipped_sensitive"], 1)
+            # Opt-in surfaces it.
+            out2 = default_registry().call("fs.summarize", {"path": str(root), "allow_sensitive": True})
+            self.assertIn(".env", {f["path"] for f in out2["files"]})
+
+
+class CodeToolSafetyTests(unittest.TestCase):
+    def test_refuses_sensitive_path_by_default(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            env = Path(d) / ".env"
+            env.write_text("NVIDIA_API_KEY=secret\n", encoding="utf-8")
+            with self.assertRaises(ToolError):
+                default_registry().call("code.analyze", {"path": str(env)})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ import ast
 from pathlib import Path
 from typing import Any
 
+from ..context import is_sensitive_path
 from .base import Tool, ToolError
 
 
@@ -15,6 +16,11 @@ def _load_source(args: dict[str, Any]) -> str:
         return source
     path = args.get("path")
     if isinstance(path, str):
+        # Security: refuse to read credential/key files unless explicitly allowed.
+        if not bool(args.get("allow_sensitive")) and is_sensitive_path(str(Path(path).resolve())):
+            raise ToolError(
+                f"Refusing to read a sensitive file: {path} (pass allow_sensitive=true to override)."
+            )
         try:
             return Path(path).read_text(encoding="utf-8")
         except OSError as err:

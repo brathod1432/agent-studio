@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ..context import is_sensitive_path
 from .base import Tool, ToolError, _require_str
 
 
@@ -29,16 +30,22 @@ def summarize_dir(args: dict[str, Any]) -> dict[str, Any]:
     if not root.exists() or not root.is_dir():
         raise ToolError(f"Not a directory: {root}")
     max_files = int(args.get("max_files", 100))
+    allow_sensitive = bool(args.get("allow_sensitive"))
 
     files: list[dict[str, Any]] = []
     total_bytes = 0
     truncated = False
+    skipped_sensitive = 0
     for entry in sorted(root.rglob("*")):
         if not entry.is_file():
             continue
         try:
             entry.resolve().relative_to(root)  # guard against symlink escape
         except ValueError:
+            continue
+        # Security: don't surface credential/key files (even metadata) by default.
+        if not allow_sensitive and is_sensitive_path(str(entry)):
+            skipped_sensitive += 1
             continue
         if len(files) >= max_files:
             truncated = True
@@ -58,6 +65,7 @@ def summarize_dir(args: dict[str, Any]) -> dict[str, Any]:
         "total_bytes": total_bytes,
         "files": files,
         "truncated": truncated,
+        "skipped_sensitive": skipped_sensitive,
     }
 
 
