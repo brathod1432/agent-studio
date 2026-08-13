@@ -13,6 +13,7 @@ import {
   ConversationStore,
   conversationToMarkdown,
   createLLMClientFromSettings,
+  createPythonBridge,
   defaultExportFilename,
   describeSecretKinds,
   detectSecrets,
@@ -29,6 +30,7 @@ import {
   type Conversation,
   type ConversationSearchResult,
   type ConversationSummary,
+  type PythonBridge,
   type ResolvedLLM,
   type TokenUsage,
 } from '../../engine/index.ts';
@@ -48,6 +50,8 @@ const HELP = [
   '  /export    Export the current conversation to Markdown (/export [path])',
   '  /model     Change the model (pick from the live list, or /model <id>)',
   '  /provider  Switch provider (/provider, or /provider <id>)',
+  '  /tools     List built-in tools (run via the Python bridge)',
+  '  /run       Run a tool and add its output as context (/run <name> <json>)',
   '  /exit      Quit',
   '',
   'Tip: reference a file with @path (e.g. "explain @src/app.ts") to add it as context.',
@@ -166,6 +170,10 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
 
   const makeAgent = (conversation: Conversation): ChatAgent =>
     new ChatAgent({ llm: client, store, conversation, maxContextTokens, systemPrompt: opts.system });
+
+  // The Python tool host is spawned lazily on first /tools or /run and reused.
+  let bridge: PythonBridge | undefined;
+  const getBridge = (): PythonBridge => (bridge ??= createPythonBridge());
 
   try {
     // Session selection. Ephemeral sessions always start fresh (resuming a
@@ -334,6 +342,53 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
           }
           continue;
         }
+        if (cmd === 'tools') {
+          try {
+            const tools = await getBridge().listTools();
+            for (const t of tools) console.log(`  ${t.name}  —  ${t.description}`);
+            console.log('Run one with: /run <name> <json-args>  (its output is added as context)\n');
+          } catch (err) {
+            console.log(`Could not list tools: ${err instanceof Error ? err.message : String(err)}\n`);
+          }
+          continue;
+        }
+        if (cmd === 'run') {
+          const [name, ...argParts] = rest;
+          if (!name) {
+            console.log('Usage: /run <tool-name> <json-args>\n');
+            continue;
+          }
+          let toolArgs: Record<string, unknown> = {};
+          const argStr = argParts.join(' ').trim();
+          if (argStr) {
+            try {
+              const parsed = JSON.parse(argStr);
+              if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                console.log('Tool args must be a JSON object.\n');
+                continue;
+              }
+              toolArgs = parsed as Record<string, unknown>;
+            } catch (err) {
+              console.log(`Invalid JSON args: ${err instanceof Error ? err.message : String(err)}\n`);
+              continue;
+            }
+          }
+          try {
+            const result = await getBridge().callTool(name, toolArgs);
+            const rendered = JSON.stringify(result, null, 2);
+            console.log(rendered);
+            // Inject the result as context so the next question can use it.
+            store.append(conversation, {
+              role: 'user',
+              content: `[tool ${name} output]\n\`\`\`json\n${rendered}\n\`\`\``,
+            });
+            store.save(conversation);
+            console.log('(added to the conversation as context)\n');
+          } catch (err) {
+            console.log(`Tool error: ${err instanceof Error ? err.message : String(err)}\n`);
+          }
+          continue;
+        }
         console.log(`Unknown command: /${cmd}. Type /help.`);
         continue;
       }
@@ -410,6 +465,7 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
     );
   } finally {
     prompt.close();
+    bridge?.close();
   }
 }
 

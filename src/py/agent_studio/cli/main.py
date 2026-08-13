@@ -38,6 +38,7 @@ from ..core.paths import resolve_paths
 from ..core.secret_scan import describe_secret_kinds, detect_secrets, redact_secrets
 from ..core.secrets import load_environment
 from ..factory import create_llm_from_settings
+from ..llm.types import ChatMessage
 from ..llm.usage import add_usage, zero_usage
 from ..memory.export import conversation_to_markdown, default_export_filename
 from ..memory.store import Conversation, ConversationStore, ConversationSummary, SearchResult
@@ -516,6 +517,8 @@ HELP = "\n".join(
         "  /search    Search saved conversations (/search <query>)",
         "  /export    Export the current conversation to Markdown (/export [path])",
         "  /model     Change the model (/model, or /model <id>)",
+        "  /tools     List built-in tools",
+        "  /run       Run a tool and add its output as context (/run <name> <json>)",
         "  /exit      Quit",
         "",
         'Tip: reference a file with @path (e.g. "explain @src/app.py") to add it as context.',
@@ -647,6 +650,39 @@ def cmd_chat(args: argparse.Namespace) -> int:
                     print("Usage: /search <query>\n")
                     continue
                 _print_search(store.search(rest))
+                continue
+            if cmd == "tools":
+                for descriptor in default_registry().list():
+                    print(f"  {descriptor['name']}  —  {descriptor['description']}")
+                print("Run one with: /run <name> <json-args>  (its output is added as context)\n")
+                continue
+            if cmd == "run":
+                name, _, arg_str = rest.partition(" ")
+                if not name:
+                    print("Usage: /run <tool-name> <json-args>\n")
+                    continue
+                try:
+                    tool_args = json.loads(arg_str) if arg_str.strip() else {}
+                except json.JSONDecodeError as err:
+                    print(f"Invalid JSON args: {err}\n")
+                    continue
+                if not isinstance(tool_args, dict):
+                    print("Tool args must be a JSON object.\n")
+                    continue
+                try:
+                    result = default_registry().call(name, tool_args)
+                except ToolError as err:
+                    print(f"Tool error: {err}\n")
+                    continue
+                rendered = json.dumps(result, indent=2)
+                print(rendered)
+                # Inject the result as context so the next question can use it.
+                store.append(
+                    conversation,
+                    ChatMessage("user", f"[tool {name} output]\n```json\n{rendered}\n```"),
+                )
+                store.save(conversation)
+                print("(added to the conversation as context)\n")
                 continue
             if cmd == "export":
                 md = conversation_to_markdown(conversation)
