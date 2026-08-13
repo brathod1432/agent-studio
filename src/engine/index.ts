@@ -145,4 +145,6 @@ export {
   createPythonBridge,
   type PythonBridgeOptions,
   type ToolDescriptor,
+  type AgentSummary,
+  type AgentRunResult,
 } from './bridge/pythonBridge.ts';

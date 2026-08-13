@@ -13,6 +13,25 @@ export interface ToolDescriptor {
   inputSchema?: unknown;
 }
 
+export interface AgentSummary {
+  id: string;
+  name: string;
+  description: string;
+  workflow: string;
+  pipeline?: string | null;
+  tools: string[];
+  policy: { readOnly: boolean; autoApprove: boolean; maxSteps: number };
+}
+
+export interface AgentRunResult {
+  agent: string;
+  workflow: string;
+  content: string;
+  steps: number;
+  toolCallsMade: number;
+  data: Record<string, unknown>;
+}
+
 export interface PythonBridgeOptions {
   /** Python executable (default: env AGENT_STUDIO_PYTHON or "python"). */
   python?: string;
@@ -48,7 +67,9 @@ export class PythonBridge {
     const env = options.env ?? process.env;
     this.#opts = {
       python: options.python ?? env.AGENT_STUDIO_PYTHON ?? 'python',
-      cwd: options.cwd ?? join(repoRoot(), 'src', 'py'),
+      // Run in the USER's cwd so relative paths (e.g. `agents run reviewer ./src`)
+      // resolve as expected; the package is found via PYTHONPATH (see #start).
+      cwd: options.cwd ?? process.cwd(),
       timeoutMs: options.timeoutMs ?? 30000,
       env,
     };
@@ -56,9 +77,16 @@ export class PythonBridge {
 
   #start(): ChildProcessWithoutNullStreams {
     if (this.#proc) return this.#proc;
+    // Make `agent_studio` importable regardless of cwd by prepending src/py to
+    // PYTHONPATH. Project/config/data roots are derived from the module file
+    // (not cwd), so they remain correct.
+    const pySrc = join(repoRoot(), 'src', 'py');
+    const sep = process.platform === 'win32' ? ';' : ':';
+    const existing = this.#opts.env.PYTHONPATH;
+    const env = { ...this.#opts.env, PYTHONPATH: existing ? `${pySrc}${sep}${existing}` : pySrc };
     const proc = spawn(this.#opts.python, ['-m', 'agent_studio.rpc.host'], {
       cwd: this.#opts.cwd,
-      env: this.#opts.env,
+      env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     proc.stdout.setEncoding('utf8');
@@ -133,6 +161,19 @@ export class PythonBridge {
 
   async callTool(name: string, args: Record<string, unknown> = {}): Promise<unknown> {
     return this.#request('tools/call', { name, arguments: args });
+  }
+
+  async listAgents(): Promise<AgentSummary[]> {
+    const result = (await this.#request('agents/list')) as { agents: AgentSummary[] };
+    return result.agents;
+  }
+
+  async describeAgent(id: string): Promise<AgentSummary & { prompt: string }> {
+    return (await this.#request('agents/describe', { id })) as AgentSummary & { prompt: string };
+  }
+
+  async runAgent(id: string, task: string): Promise<AgentRunResult> {
+    return (await this.#request('agents/run', { id, task })) as AgentRunResult;
   }
 
   /** Captured stderr from the host (for diagnostics). */

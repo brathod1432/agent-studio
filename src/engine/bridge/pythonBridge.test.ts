@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { createPythonBridge } from './pythonBridge.ts';
@@ -56,6 +59,29 @@ test('pythonBridge: a tool error is surfaced as a rejected promise', async (t) =
   try {
     await assert.rejects(() => bridge.callTool('does.not.exist', {}), /Unknown tool/);
   } finally {
+    bridge.close();
+  }
+});
+
+test('pythonBridge: lists agents and runs a pipeline agent over the bridge', async (t) => {
+  if (!pythonAvailable()) {
+    t.skip('Python not available; skipping.');
+    return;
+  }
+  const bridge = createPythonBridge({ timeoutMs: 30000 });
+  const dir = mkdtempSync(join(tmpdir(), 'as-agent-'));
+  try {
+    const agents = await bridge.listAgents();
+    const ids = agents.map((a) => a.id);
+    assert.ok(ids.includes('code-reviewer'));
+    assert.ok(ids.includes('security-auditor'));
+
+    writeFileSync(join(dir, 'm.py'), 'def a():\n    return 1\n', 'utf8');
+    const result = await bridge.runAgent('code-reviewer', dir);
+    assert.equal(result.workflow, 'pipeline');
+    assert.match(result.content, /Code Review/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
     bridge.close();
   }
 });

@@ -28,6 +28,7 @@ import { runChat } from './chat.ts';
 import { runConfig } from './config.ts';
 import { runAsk } from './ask.ts';
 import { runExport, runHistory, runPrivacy, runPurge, runShow } from './data.ts';
+import { runAgents } from './agents.ts';
 
 function printBanner(): void {
   console.log('==============================================');
@@ -243,9 +244,12 @@ async function main(): Promise<void> {
     case 'purge':
       await runPurge(process.argv.slice(3));
       break;
+    case 'agents':
+      await runAgents(process.argv.slice(3));
+      break;
     default:
       console.log(
-        'Usage: agent-studio <onboard|doctor|status|chat|config|ask|history|show|export|privacy|purge|version>',
+        'Usage: agent-studio <onboard|doctor|status|chat|config|ask|agents|history|show|export|privacy|purge|version>',
       );
       process.exitCode = 2;
   }
