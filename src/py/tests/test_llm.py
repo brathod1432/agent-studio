@@ -60,6 +60,37 @@ class ChatTests(unittest.TestCase):
         )
         self.assertNotIn("max_tokens", calls2[0]["body"])
 
+    def test_chat_with_tools_advertises_tools_and_parses_tool_calls(self) -> None:
+        tool_call_json = json.dumps(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": "",
+                            "tool_calls": [
+                                {
+                                    "id": "call_1",
+                                    "type": "function",
+                                    "function": {"name": "text.stats", "arguments": '{"text":"a b"}'},
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            }
+        )
+        http, calls = make_http_open([FakeResponse(200, tool_call_json)])
+        client = OpenAICompatibleClient(nvidia_config(), KEY, REQUEST, http)
+        tools = [{"type": "function", "function": {"name": "text.stats", "parameters": {}}}]
+        res = client.chat_with_tools([{"role": "user", "content": "count a b"}], tools)
+        self.assertEqual(len(res.tool_calls), 1)
+        self.assertEqual(res.tool_calls[0].name, "text.stats")
+        self.assertEqual(res.tool_calls[0].arguments, '{"text":"a b"}')
+        # The request advertised the tools.
+        self.assertEqual(calls[0]["body"]["tools"], tools)
+        self.assertEqual(calls[0]["body"]["tool_choice"], "auto")
+
     def test_missing_key_raises_before_any_request(self) -> None:
         http, calls = make_http_open([FakeResponse(200, completion_json("x"))])
         client = OpenAICompatibleClient(nvidia_config(), None, REQUEST, http)

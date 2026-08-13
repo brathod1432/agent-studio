@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -22,8 +22,18 @@ class TokenUsage:
 
 
 @dataclass
+class ToolCall:
+    """A tool/function call requested by the model."""
+
+    id: str
+    name: str
+    arguments: str  # raw JSON string as returned by the provider
+
+
+@dataclass
 class ChatResponse:
     content: str
     model: str | None = None
     finish_reason: str | None = None
     usage: TokenUsage | None = None
+    tool_calls: list[ToolCall] = field(default_factory=list)

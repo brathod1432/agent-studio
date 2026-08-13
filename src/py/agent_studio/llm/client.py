@@ -15,7 +15,7 @@ from typing import Any
 
 from ..config.types import ProviderConfig, RequestSettings
 from ..core.http import HttpResponse, TransportError, join_url, open_http
-from .types import ChatMessage, ChatResponse, TokenUsage
+from .types import ChatMessage, ChatResponse, TokenUsage, ToolCall
 
 HttpOpen = Callable[..., HttpResponse]
 DeltaHandler = Callable[[str], None]
@@ -95,26 +95,18 @@ class OpenAICompatibleClient:
         time.sleep(_backoff_ms(err, attempt, self._request.retry_base_delay_ms) / 1000.0)
 
     # -- non-streaming -----------------------------------------------------
-    def chat(
-        self,
-        messages: list[ChatMessage],
-        *,
-        model: str | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        should_cancel: CancelFn | None = None,
-    ) -> ChatResponse:
+    def _post_json(self, body: dict[str, Any], should_cancel: CancelFn | None) -> dict[str, Any] | None:
+        """POST chat/completions with retry. Returns parsed JSON, or None if
+        cancelled before a response."""
         from ..providers.errors import error_from_status, error_from_transport
 
         self._require_key()
         url = join_url(self.config.base_url, "chat/completions")
         timeout = self._request.timeout_ms / 1000.0
-        body = self._body(messages, model, temperature, stream=False, max_tokens=max_tokens)
-
         attempt = 0
         while True:
             if should_cancel and should_cancel():
-                return ChatResponse(content="", finish_reason="cancelled")
+                return None
             try:
                 resp = self._http_open("POST", url, self._headers("application/json"), body, timeout)
             except TransportError as err:
@@ -131,8 +123,50 @@ class OpenAICompatibleClient:
                     attempt += 1
                     continue
                 raise perr
-            data = json.loads(resp.read_text() or "{}")
-            return _parse_completion(data)
+            parsed: dict[str, Any] = json.loads(resp.read_text() or "{}")
+            return parsed
+
+    def chat(
+        self,
+        messages: list[ChatMessage],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+        should_cancel: CancelFn | None = None,
+    ) -> ChatResponse:
+        body = self._body(messages, model, temperature, stream=False, max_tokens=max_tokens)
+        data = self._post_json(body, should_cancel)
+        if data is None:
+            return ChatResponse(content="", finish_reason="cancelled")
+        return _parse_completion(data)
+
+    def chat_with_tools(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        *,
+        model: str | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> ChatResponse:
+        """Non-streaming completion that advertises ``tools`` and returns any
+        ``tool_calls`` the model requests. ``messages`` are raw OpenAI-shaped
+        dicts (so assistant tool_calls + tool results can be threaded)."""
+        body: dict[str, Any] = {
+            "model": model or self.config.model,
+            "messages": messages,
+            "stream": False,
+        }
+        if tools:
+            body["tools"] = tools
+            body["tool_choice"] = "auto"
+        if temperature is not None:
+            body["temperature"] = temperature
+        if max_tokens is not None and max_tokens > 0:
+            body["max_tokens"] = max_tokens
+        data = self._post_json(body, None)
+        return _parse_completion(data or {})
 
     # -- streaming ---------------------------------------------------------
     def chat_stream(
@@ -224,6 +258,17 @@ def _usage_from(raw: dict[str, Any]) -> TokenUsage:
 def _parse_completion(data: dict[str, Any]) -> ChatResponse:
     choices = data.get("choices") or []
     choice = choices[0] if choices else {}
-    content = (choice.get("message") or {}).get("content") or ""
+    message = choice.get("message") or {}
+    content = message.get("content") or ""
     usage = _usage_from(data["usage"]) if data.get("usage") else None
-    return ChatResponse(content, data.get("model"), choice.get("finish_reason"), usage)
+    tool_calls: list[ToolCall] = []
+    for call in message.get("tool_calls") or []:
+        fn = call.get("function") or {}
+        tool_calls.append(
+            ToolCall(
+                id=str(call.get("id") or f"call_{len(tool_calls)}"),
+                name=str(fn.get("name") or ""),
+                arguments=str(fn.get("arguments") or "{}"),
+            )
+        )
+    return ChatResponse(content, data.get("model"), choice.get("finish_reason"), usage, tool_calls)
