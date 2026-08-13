@@ -92,6 +92,7 @@ def load_default_config(config_dir: Path | None = None) -> DefaultConfig:
         default_model=str(raw.get("defaultModel", "")),
         request=_request_from(raw.get("request")),
         max_context_tokens=int(raw.get("maxContextTokens", 0)),
+        max_output_tokens=int(raw.get("maxOutputTokens", 0)),
     )
 
 
@@ -171,6 +172,7 @@ def load_settings(
         providers=providers,
         request=request,
         max_context_tokens=int(saved.get("maxContextTokens", defaults.max_context_tokens)),
+        max_output_tokens=int(saved.get("maxOutputTokens", defaults.max_output_tokens)),
     )
 
 
@@ -201,6 +203,7 @@ def settings_to_raw(settings: AppSettings) -> dict[str, Any]:
         "providers": {pid: _provider_to_raw(p) for pid, p in settings.providers.items()},
         "request": _request_to_raw(settings.request),
         "maxContextTokens": settings.max_context_tokens,
+        "maxOutputTokens": settings.max_output_tokens,
     }
 
 

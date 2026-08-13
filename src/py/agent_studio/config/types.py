@@ -45,6 +45,7 @@ class DefaultConfig:
     default_model: str
     request: RequestSettings
     max_context_tokens: int = 0
+    max_output_tokens: int = 0
 
 
 @dataclass
@@ -54,6 +55,7 @@ class AppSettings:
     providers: dict[str, ProviderConfig] = field(default_factory=dict)
     request: RequestSettings = field(default_factory=RequestSettings)
     max_context_tokens: int = 0
+    max_output_tokens: int = 0
 
 
 @dataclass(frozen=True)

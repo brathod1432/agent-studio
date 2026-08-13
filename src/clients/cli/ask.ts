@@ -26,6 +26,7 @@ export interface AskArgs {
   prompt: string;
   model?: string;
   temperature?: number;
+  maxTokens?: number;
   allowAnyFile: boolean;
   redact: boolean;
 }
@@ -37,6 +38,7 @@ export function parseAskArgs(argv: string[]): AskArgs {
   let redact = false;
   let model: string | undefined;
   let temperature: number | undefined;
+  let maxTokens: number | undefined;
   const parts: string[] = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -48,10 +50,13 @@ export function parseAskArgs(argv: string[]): AskArgs {
     else if (a?.startsWith('--model=')) model = a.slice('--model='.length);
     else if (a === '--temperature') temperature = Number(argv[++i]);
     else if (a?.startsWith('--temperature=')) temperature = Number(a.slice('--temperature='.length));
+    else if (a === '--max-tokens') maxTokens = Number(argv[++i]);
+    else if (a?.startsWith('--max-tokens=')) maxTokens = Number(a.slice('--max-tokens='.length));
     else parts.push(a);
   }
   if (temperature != null && Number.isNaN(temperature)) temperature = undefined;
-  return { json, prompt: parts.join(' ').trim(), model, temperature, allowAnyFile, redact };
+  if (maxTokens != null && !Number.isFinite(maxTokens)) maxTokens = undefined;
+  return { json, prompt: parts.join(' ').trim(), model, temperature, maxTokens, allowAnyFile, redact };
 }
 
 /**
@@ -73,7 +78,7 @@ async function readStdin(): Promise<string> {
 }
 
 export async function runAsk(argv: string[]): Promise<void> {
-  const { json, prompt: promptArg, model, temperature, allowAnyFile, redact } = parseAskArgs(argv);
+  const { json, prompt: promptArg, model, temperature, maxTokens, allowAnyFile, redact } = parseAskArgs(argv);
   const stdin = await readStdin();
   const combined = combineInput(promptArg, stdin);
 
@@ -103,8 +108,9 @@ export async function runAsk(argv: string[]): Promise<void> {
     }
     throw err;
   }
-  const { client, config } = resolved;
-  const turn = { model, temperature };
+  const { client, config, settings } = resolved;
+  const effectiveMaxTokens = maxTokens ?? (settings.maxOutputTokens > 0 ? settings.maxOutputTokens : undefined);
+  const turn = { model, temperature, maxTokens: effectiveMaxTokens };
   const effectiveModel = model ?? client.model;
 
   // One-shot is ephemeral: build a throwaway conversation that is never written.

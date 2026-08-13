@@ -317,6 +317,9 @@ def cmd_ask(args: argparse.Namespace) -> int:
 
     model = getattr(args, "model", None)
     temperature = getattr(args, "temperature", None)
+    max_tokens = getattr(args, "max_tokens", None)
+    if not max_tokens and resolved.settings.max_output_tokens > 0:
+        max_tokens = resolved.settings.max_output_tokens
     effective_model = model or resolved.client.model
 
     store = ConversationStore(ephemeral=True)
@@ -324,7 +327,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
     agent = ChatAgent(resolved.client, store, conversation, max_context_tokens=resolved.settings.max_context_tokens)
     try:
         if args.json:
-            answer = agent.run(message, model=model, temperature=temperature)
+            answer = agent.run(message, model=model, temperature=temperature, max_tokens=max_tokens)
             usage = agent.last_usage
             out = {
                 "model": effective_model,
@@ -339,7 +342,7 @@ def cmd_ask(args: argparse.Namespace) -> int:
             }
             sys.stdout.write(json.dumps(out, indent=2) + "\n")
         else:
-            agent.run_stream(message, _stdout, model=model, temperature=temperature)
+            agent.run_stream(message, _stdout, model=model, temperature=temperature, max_tokens=max_tokens)
             sys.stdout.write("\n")
     except ProviderError as err:
         print(format_error(err), file=sys.stderr)
@@ -447,7 +450,7 @@ HELP = "\n".join(
 )
 
 
-def _stream_with_cancel(agent: ChatAgent, message: str) -> bool:
+def _stream_with_cancel(agent: ChatAgent, message: str, max_tokens: int | None = None) -> bool:
     """Stream a reply, installing a SIGINT handler so Ctrl+C cancels (keeping the
     partial reply) instead of killing the process. Returns whether it cancelled."""
     cancelled = {"v": False}
@@ -462,7 +465,7 @@ def _stream_with_cancel(agent: ChatAgent, message: str) -> bool:
     except ValueError:
         previous = None  # not in the main thread
     try:
-        agent.run_stream(message, _stdout, should_cancel=lambda: cancelled["v"])
+        agent.run_stream(message, _stdout, should_cancel=lambda: cancelled["v"], max_tokens=max_tokens)
     finally:
         if previous is not None:
             signal.signal(signal.SIGINT, previous)
@@ -497,6 +500,10 @@ def cmd_chat(args: argparse.Namespace) -> int:
 
     store = ConversationStore(ephemeral=ephemeral)
     max_ctx = settings.max_context_tokens
+    # Effective per-turn output cap: CLI flag wins, else the configured default.
+    max_tokens = getattr(args, "max_tokens", None) or (
+        settings.max_output_tokens if settings.max_output_tokens > 0 else None
+    )
     interactive = sys.stdin.isatty()
 
     def make_agent(conv: Conversation) -> ChatAgent:
@@ -615,7 +622,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
         sys.stdout.write("assistant> ")
         sys.stdout.flush()
         try:
-            was_cancelled = _stream_with_cancel(agent, message)
+            was_cancelled = _stream_with_cancel(agent, message, max_tokens=max_tokens)
             sys.stdout.write("\n")
             if was_cancelled:
                 print("[cancelled — partial reply saved]")
@@ -734,6 +741,7 @@ def build_parser() -> argparse.ArgumentParser:
     ask.add_argument("--json", action="store_true", help="Emit a JSON result")
     ask.add_argument("--model", help="Override the model for this call only")
     ask.add_argument("--temperature", type=float, help="Override the temperature for this call only")
+    ask.add_argument("--max-tokens", type=int, help="Cap generated tokens (overrides the config default)")
     ask.add_argument(
         "--allow-any-file",
         action="store_true",
@@ -747,6 +755,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     chat = sub.add_parser("chat", help="Interactive conversational agent")
     chat.add_argument("--no-save", action="store_true", help="Ephemeral session (nothing written to disk)")
+    chat.add_argument("--max-tokens", type=int, help="Cap generated tokens per reply (overrides the config default)")
     chat.add_argument(
         "--allow-any-file",
         action="store_true",

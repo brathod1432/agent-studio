@@ -34,6 +34,8 @@ export interface ChatAgentOptions {
 export interface TurnOptions {
   model?: string;
   temperature?: number;
+  /** Cap on generated tokens for this turn (0/undefined = provider default). */
+  maxTokens?: number;
 }
 
 export class ChatAgent implements Agent, StreamingAgent {
@@ -110,7 +112,12 @@ export class ChatAgent implements Agent, StreamingAgent {
   async run(input: string, opts: TurnOptions = {}): Promise<string> {
     this.#store.append(this.#conversation, { role: 'user', content: input });
     const messages = this.#buildMessages();
-    const response = await this.#llm.chat({ messages, model: opts.model, temperature: opts.temperature });
+    const response = await this.#llm.chat({
+      messages,
+      model: opts.model,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+    });
     this.#store.append(this.#conversation, { role: 'assistant', content: response.content });
     this.#store.save(this.#conversation); // auto-save
     this.#recordUsage(messages, response);
@@ -125,7 +132,13 @@ export class ChatAgent implements Agent, StreamingAgent {
   ): Promise<string> {
     this.#store.append(this.#conversation, { role: 'user', content: input });
     const messages = this.#buildMessages();
-    const req = { messages, signal, model: opts.model, temperature: opts.temperature };
+    const req = {
+      messages,
+      signal,
+      model: opts.model,
+      temperature: opts.temperature,
+      maxTokens: opts.maxTokens,
+    };
     let response;
     if (this.#llm.supportsStreaming()) {
       response = await this.#llm.chatStream(req, onDelta);

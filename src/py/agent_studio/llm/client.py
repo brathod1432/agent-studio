@@ -73,6 +73,7 @@ class OpenAICompatibleClient:
         model: str | None,
         temperature: float | None,
         stream: bool,
+        max_tokens: int | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "model": model or self.config.model,
@@ -83,6 +84,8 @@ class OpenAICompatibleClient:
             body["stream_options"] = {"include_usage": True}
         if temperature is not None:
             body["temperature"] = temperature
+        if max_tokens is not None and max_tokens > 0:
+            body["max_tokens"] = max_tokens
         return body
 
     def _should_retry(self, err: Any, attempt: int, cancelled: bool) -> bool:
@@ -98,6 +101,7 @@ class OpenAICompatibleClient:
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
         should_cancel: CancelFn | None = None,
     ) -> ChatResponse:
         from ..providers.errors import error_from_status, error_from_transport
@@ -105,7 +109,7 @@ class OpenAICompatibleClient:
         self._require_key()
         url = join_url(self.config.base_url, "chat/completions")
         timeout = self._request.timeout_ms / 1000.0
-        body = self._body(messages, model, temperature, stream=False)
+        body = self._body(messages, model, temperature, stream=False, max_tokens=max_tokens)
 
         attempt = 0
         while True:
@@ -138,6 +142,7 @@ class OpenAICompatibleClient:
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
         should_cancel: CancelFn | None = None,
     ) -> ChatResponse:
         from ..providers.errors import error_from_status, error_from_transport
@@ -145,7 +150,7 @@ class OpenAICompatibleClient:
         self._require_key()
         url = join_url(self.config.base_url, "chat/completions")
         timeout = self._request.timeout_ms / 1000.0
-        body = self._body(messages, model, temperature, stream=True)
+        body = self._body(messages, model, temperature, stream=True, max_tokens=max_tokens)
 
         # Establish the connection with retry (before any delta is emitted).
         attempt = 0

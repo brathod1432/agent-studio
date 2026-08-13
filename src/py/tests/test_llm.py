@@ -45,6 +45,20 @@ class ChatTests(unittest.TestCase):
         self.assertTrue(calls[0]["url"].endswith("/chat/completions"))
         self.assertEqual(calls[0]["headers"]["Authorization"], f"Bearer {KEY}")
         self.assertEqual(calls[0]["body"]["stream"], False)
+        self.assertNotIn("max_tokens", calls[0]["body"])  # omitted by default
+
+    def test_chat_sends_max_tokens_when_capped(self) -> None:
+        http, calls = make_http_open([FakeResponse(200, completion_json("ok"))])
+        client = OpenAICompatibleClient(nvidia_config(), KEY, REQUEST, http)
+        client.chat([ChatMessage("user", "hi")], max_tokens=128, temperature=0.5)
+        self.assertEqual(calls[0]["body"]["max_tokens"], 128)
+        self.assertEqual(calls[0]["body"]["temperature"], 0.5)
+        # A zero/negative cap is treated as "unset" and omitted.
+        http2, calls2 = make_http_open([FakeResponse(200, completion_json("ok"))])
+        OpenAICompatibleClient(nvidia_config(), KEY, REQUEST, http2).chat(
+            [ChatMessage("user", "hi")], max_tokens=0
+        )
+        self.assertNotIn("max_tokens", calls2[0]["body"])
 
     def test_missing_key_raises_before_any_request(self) -> None:
         http, calls = make_http_open([FakeResponse(200, completion_json("x"))])

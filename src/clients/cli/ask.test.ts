@@ -9,9 +9,12 @@ test('parseAskArgs: extracts --json and joins the remaining prompt', () => {
     prompt: 'hello world',
     model: undefined,
     temperature: undefined,
+    maxTokens: undefined,
     allowAnyFile: false,
     redact: false,
   });
+  assert.equal(parseAskArgs(['--max-tokens', '128', 'hi']).maxTokens, 128);
+  assert.equal(parseAskArgs(['--max-tokens=256', 'hi']).maxTokens, 256);
   assert.equal(parseAskArgs(['--json', 'why', 'sky', 'blue']).json, true);
   assert.equal(parseAskArgs(['--json', 'why', 'sky', 'blue']).prompt, 'why sky blue');
   assert.equal(parseAskArgs(['-m', 'question', 'text']).prompt, 'question text');

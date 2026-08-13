@@ -114,6 +114,8 @@ export interface RunChatOptions {
   allowAnyFile?: boolean;
   /** Redact secret-looking content from each message before sending/persisting. */
   redactSecrets?: boolean;
+  /** Cap generated tokens per reply (overrides the configured default). */
+  maxTokens?: number;
 }
 
 export async function runChat(opts: RunChatOptions = {}): Promise<void> {
@@ -154,7 +156,11 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
 
   const store = new ConversationStore({ ephemeral });
   const prompt = createPrompter();
-  const maxContextTokens = loadSettings().maxContextTokens;
+  const loadedSettings = loadSettings();
+  const maxContextTokens = loadedSettings.maxContextTokens;
+  // Effective per-turn output cap: CLI flag wins, else the configured default.
+  const maxTokens =
+    opts.maxTokens ?? (loadedSettings.maxOutputTokens > 0 ? loadedSettings.maxOutputTokens : undefined);
 
   const makeAgent = (conversation: Conversation): ChatAgent =>
     new ChatAgent({ llm: client, store, conversation, maxContextTokens });
@@ -364,7 +370,9 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
       const controller = new AbortController();
       const unsubscribe = prompt.onSigint(() => controller.abort());
       try {
-        await agent.runStream(message, (delta) => process.stdout.write(delta), controller.signal);
+        await agent.runStream(message, (delta) => process.stdout.write(delta), controller.signal, {
+          maxTokens,
+        });
         process.stdout.write('\n');
         if (controller.signal.aborted) {
           console.log('[cancelled — partial reply saved]');

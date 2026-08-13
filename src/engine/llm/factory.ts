@@ -3,7 +3,7 @@
 
 import { loadCatalog } from '../config/catalog.ts';
 import { loadSettings, resolveActiveProvider, type StoreOptions } from '../config/store.ts';
-import type { ProviderConfig } from '../config/types.ts';
+import type { AppSettings, ProviderConfig } from '../config/types.ts';
 import { registerSecretValue } from '../core/redact.ts';
 import { resolveSecret } from '../core/secrets.ts';
 import { ProviderError } from '../providers/errors.ts';
@@ -42,6 +42,7 @@ export interface FromSettingsOptions {
 export interface ResolvedLLM {
   client: LLMClient;
   config: ProviderConfig;
+  settings: AppSettings;
 }
 
 /**
@@ -69,5 +70,5 @@ export function createLLMClientFromSettings(opts: FromSettingsOptions = {}): Res
     request: settings.request,
     fetchImpl: opts.fetchImpl,
   });
-  return { client, config };
+  return { client, config, settings };
 }

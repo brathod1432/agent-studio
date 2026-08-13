@@ -107,6 +107,7 @@ export class OpenAICompatibleChatClient implements LLMClient {
     // streaming. Endpoints that don't support this simply ignore the field.
     if (stream) body.stream_options = { include_usage: true };
     if (request.temperature != null) body.temperature = request.temperature;
+    if (request.maxTokens != null && request.maxTokens > 0) body.max_tokens = request.maxTokens;
     return JSON.stringify(body);
   }
 

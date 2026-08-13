@@ -16,6 +16,8 @@ export interface ChatRequest {
   /** Optional model override; defaults to the configured provider model. */
   model?: string;
   temperature?: number;
+  /** Cap on generated tokens (max_tokens). Omitted = provider default. */
+  maxTokens?: number;
   /**
    * Optional caller-controlled cancellation. When aborted, streaming stops and
    * the partial reply so far is returned (finishReason "cancelled") rather than

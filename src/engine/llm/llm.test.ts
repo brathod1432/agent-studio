@@ -62,6 +62,18 @@ test('model override in the request is honored', async () => {
   assert.equal(JSON.parse(String(calls[0]!.init?.body)).model, 'nvidia/other-model');
 });
 
+test('maxTokens is sent as max_tokens when positive, omitted otherwise', async () => {
+  const capped = recordingFetch(chatCompletionResponse('ok'));
+  const c1 = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: capped.fetch });
+  await c1.chat({ messages: [{ role: 'user', content: 'x' }], maxTokens: 128 });
+  assert.equal(JSON.parse(String(capped.calls[0]!.init?.body)).max_tokens, 128);
+
+  const none = recordingFetch(chatCompletionResponse('ok'));
+  const c2 = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: none.fetch });
+  await c2.chat({ messages: [{ role: 'user', content: 'x' }], maxTokens: 0 });
+  assert.equal('max_tokens' in JSON.parse(String(none.calls[0]!.init?.body)), false);
+});
+
 test('validate() returns true on reachable/authorized endpoint, false on 401', async () => {
   const okClient = createLLMClient({
     config: nvidiaConfig(),

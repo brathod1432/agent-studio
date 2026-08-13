@@ -7,5 +7,6 @@
     "maxRetries": 2,
     "retryBaseDelayMs": 500
   },
-  "maxContextTokens": 16000
+  "maxContextTokens": 16000,
+  "maxOutputTokens": 0
 }

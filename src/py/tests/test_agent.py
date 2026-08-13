@@ -55,13 +55,14 @@ class AgentTests(unittest.TestCase):
             self.assertEqual(client.last_messages[0].role, "system")
             self.assertEqual(store.load(agent.conversation.id).title, "Hello")
 
-    def test_run_forwards_model_and_temperature_overrides(self) -> None:
+    def test_run_forwards_model_temperature_and_max_tokens_overrides(self) -> None:
         with tempfile.TemporaryDirectory() as d:
             client = FakeClient("ok")
             agent, _ = _agent(d, client)
-            agent.run("hi", model="meta/llama-3.1-8b-instruct", temperature=0.0)
+            agent.run("hi", model="meta/llama-3.1-8b-instruct", temperature=0.0, max_tokens=64)
             self.assertEqual(client.last_kwargs.get("model"), "meta/llama-3.1-8b-instruct")
             self.assertEqual(client.last_kwargs.get("temperature"), 0.0)
+            self.assertEqual(client.last_kwargs.get("max_tokens"), 64)
 
     def test_exact_usage_vs_estimate(self) -> None:
         with tempfile.TemporaryDirectory() as d:

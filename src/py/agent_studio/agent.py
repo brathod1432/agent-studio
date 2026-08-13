@@ -66,10 +66,11 @@ class ChatAgent:
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         self._store.append(self._conversation, ChatMessage("user", user_input))
         messages = self._build_messages()
-        response = self._llm.chat(messages, model=model, temperature=temperature)
+        response = self._llm.chat(messages, model=model, temperature=temperature, max_tokens=max_tokens)
         if response.content:
             self._store.append(self._conversation, ChatMessage("assistant", response.content))
         self._store.save(self._conversation)
@@ -84,11 +85,17 @@ class ChatAgent:
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_tokens: int | None = None,
     ) -> str:
         self._store.append(self._conversation, ChatMessage("user", user_input))
         messages = self._build_messages()
         response = self._llm.chat_stream(
-            messages, on_delta, model=model, temperature=temperature, should_cancel=should_cancel
+            messages,
+            on_delta,
+            model=model,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            should_cancel=should_cancel,
         )
         # Persist the turn even when cancelled: question + any partial reply.
         if response.content:

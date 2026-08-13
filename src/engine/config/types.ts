@@ -47,6 +47,8 @@ export interface AppSettings {
   request: RequestSettings;
   /** Max estimated tokens of history to send per turn (0 = unlimited). */
   maxContextTokens: number;
+  /** Default cap on generated tokens per reply (0 = unset/provider default). */
+  maxOutputTokens: number;
 }
 
 /** Shape of config/default.json. */
@@ -56,4 +58,6 @@ export interface DefaultConfig {
   request: RequestSettings;
   /** Max estimated tokens of history to send per turn (0 = unlimited). */
   maxContextTokens: number;
+  /** Default cap on generated tokens per reply (0 = unset/provider default). */
+  maxOutputTokens: number;
 }

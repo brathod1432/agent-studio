@@ -202,7 +202,11 @@ async function main(): Promise<void> {
       const ephemeral = chatArgs.includes('--no-save') || chatArgs.includes('--ephemeral');
       const allowAnyFile = chatArgs.includes('--allow-any-file');
       const redactSecrets = chatArgs.includes('--redact-secrets');
-      await runChat({ ephemeral, allowAnyFile, redactSecrets });
+      const mtIdx = chatArgs.findIndex((a) => a === '--max-tokens');
+      const mtInline = chatArgs.find((a) => a.startsWith('--max-tokens='));
+      const mtRaw = mtInline ? mtInline.slice('--max-tokens='.length) : mtIdx >= 0 ? chatArgs[mtIdx + 1] : undefined;
+      const maxTokens = mtRaw != null && Number.isFinite(Number(mtRaw)) ? Number(mtRaw) : undefined;
+      await runChat({ ephemeral, allowAnyFile, redactSecrets, maxTokens });
       break;
     }
     case 'config':
