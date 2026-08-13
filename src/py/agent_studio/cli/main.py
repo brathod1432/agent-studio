@@ -21,6 +21,10 @@ from typing import Any, TextIO
 
 from .. import __version__
 from ..agent import ChatAgent
+from ..agents.catalog import load_agent_by_id
+from ..agents.catalog import load_catalog as load_agent_catalog
+from ..agents.runner import run_agent
+from ..agents.spec import AgentSpec, AgentSpecError
 from ..agents.tool_loop import run_tool_loop, tool_schema
 from ..config.loader import (
     configure_provider,
@@ -506,6 +510,117 @@ def cmd_tools(args: argparse.Namespace) -> int:
 
 
 # --------------------------------------------------------------------------
+# agents
+# --------------------------------------------------------------------------
+def cmd_agents(args: argparse.Namespace) -> int:
+    action = args.action or "list"
+    if action == "list":
+        catalog = load_agent_catalog()
+        if not catalog:
+            print("No agents found.")
+            return 0
+        for spec in catalog.values():
+            print(f"  {spec.id}  [{spec.workflow}]  —  {spec.name}")
+            print(f"      {spec.description}")
+        return 0
+
+    if action == "show":
+        if not args.agent:
+            print("Usage: agents show <id>", file=sys.stderr)
+            return 2
+        try:
+            spec = load_agent_by_id(args.agent)
+        except AgentSpecError as err:
+            print(str(err), file=sys.stderr)
+            return 1
+        print(f"# {spec.name}  ({spec.id})")
+        print(f"{spec.description}\n")
+        print(f"Workflow:  {spec.workflow}" + (f" ({spec.pipeline})" if spec.pipeline else ""))
+        print(f"Tools:     {', '.join(spec.tools) or '(none)'}")
+        pol = spec.policy
+        print(f"Policy:    readOnly={pol.read_only}, autoApprove={pol.auto_approve}, maxSteps={pol.max_steps}")
+        print(f"\nPrompt:\n{spec.prompt}")
+        return 0
+
+    if action == "run":
+        return _agents_run(args)
+
+    print("Usage: agents [list | show <id> | run <id> <task>]", file=sys.stderr)
+    return 2
+
+
+def _agents_run(args: argparse.Namespace) -> int:
+    if not args.agent:
+        print("Usage: agents run <id> <task-or-path>", file=sys.stderr)
+        return 2
+    try:
+        spec = load_agent_by_id(args.agent)
+    except AgentSpecError as err:
+        print(str(err), file=sys.stderr)
+        return 1
+
+    task = " ".join(args.task).strip()
+    registry = default_registry()
+    env = build_env()
+
+    if spec.workflow == "pipeline":
+        if not task:
+            print(f"Usage: agents run {spec.id} <path>", file=sys.stderr)
+            return 2
+        try:
+            result = run_agent(spec, task, registry)
+        except ToolError as err:
+            print(str(err), file=sys.stderr)
+            return 1
+        return _emit_agent_result(spec, result, json_mode=args.json)
+
+    # agentic
+    if not task:
+        print(f"Usage: agents run {spec.id} <task>  (attach data with @file)", file=sys.stderr)
+        return 2
+    task = _apply_file_context(task, sys.stderr, allow_any=bool(getattr(args, "allow_any_file", False)))
+    try:
+        resolved = create_llm_from_settings(env)
+    except ProviderError as err:
+        print(err.message, file=sys.stderr)
+        return 1
+    client = resolved.client
+
+    def llm(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ChatResponse:
+        return client.chat_with_tools(messages, tools, max_tokens=resolved.settings.max_output_tokens or None)
+
+    def on_event(kind: str, detail: str) -> None:
+        if not args.json and kind in ("call", "denied", "error"):
+            marker = {"call": "\u2192 tool", "denied": "\u2717 denied", "error": "! error"}[kind]
+            print(f"  {marker}: {detail}", file=sys.stderr)
+
+    try:
+        result = run_agent(spec, task, registry, llm=llm, on_event=on_event)
+    except ProviderError as err:
+        print(format_error(err), file=sys.stderr)
+        return 1
+    return _emit_agent_result(spec, result, json_mode=args.json)
+
+
+def _emit_agent_result(spec: AgentSpec, result: Any, *, json_mode: bool) -> int:
+    if json_mode:
+        out = {
+            "agent": result.agent_id,
+            "workflow": result.workflow,
+            "content": result.content,
+            "steps": result.steps,
+            "toolCallsMade": result.tool_calls_made,
+            "data": result.data,
+        }
+        sys.stdout.write(json.dumps(out, indent=2) + "\n")
+        return 0
+    print(result.content)
+    if result.workflow == "agentic":
+        print(f"\n[agent] {result.tool_calls_made} tool call(s), {result.steps} step(s)")
+    return 0
+
+
+# --------------------------------------------------------------------------
 # chat (interactive)
 # --------------------------------------------------------------------------
 HELP = "\n".join(
@@ -980,6 +1095,17 @@ def build_parser() -> argparse.ArgumentParser:
     tools.add_argument("action", nargs="?", choices=["list", "run"])
     tools.add_argument("name", nargs="?", help="Tool name (for 'run')")
     tools.add_argument("--args", help="Tool arguments as a JSON object (or pipe on stdin)")
+
+    agents = sub.add_parser("agents", help="List, show, or run specialized agents")
+    agents.add_argument("action", nargs="?", choices=["list", "show", "run"])
+    agents.add_argument("agent", nargs="?", help="Agent id (for show/run)")
+    agents.add_argument("task", nargs="*", help="Task text, or a path for pipeline agents")
+    agents.add_argument("--json", action="store_true", help="Emit a JSON result")
+    agents.add_argument(
+        "--allow-any-file",
+        action="store_true",
+        help="Relax @file guards for agentic agents (read outside workspace / sensitive files)",
+    )
     return parser
 
 
@@ -1014,6 +1140,7 @@ def main(argv: list[str] | None = None) -> int:
         "chat": cmd_chat,
         "config": cmd_config,
         "tools": cmd_tools,
+        "agents": cmd_agents,
     }
     handler = handlers.get(command)
     if handler is None:
