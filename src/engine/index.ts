@@ -133,6 +133,8 @@ export { ChatAgent, type ChatAgentOptions, type TurnOptions } from './agents/cha
 export {
   runToolLoop,
   toolSchema,
+  safeToolName,
+  aliasMap,
   type ToolLoopResult,
   type ToolLoopLLM,
   type ToolExecute,

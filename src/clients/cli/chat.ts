@@ -19,6 +19,7 @@ import {
   defaultRegistry,
   runToolLoop,
   toolSchema,
+  aliasMap,
   describeSecretKinds,
   detectSecrets,
   formatError,
@@ -198,7 +199,9 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
   }
 
   const runAgentTurn = async (conv: Conversation, message: string): Promise<void> => {
-    const tools = (await getBridge().listTools()).map(toolSchema);
+    const descriptors = await getBridge().listTools();
+    const tools = descriptors.map(toolSchema);
+    const alias = aliasMap(descriptors.map((d) => d.name)); // provider-safe -> real
     store.append(conv, { role: 'user', content: message });
     const apiMessages: RawMessage[] = [
       { role: 'system', content: systemText },
@@ -208,7 +211,7 @@ export async function runChat(opts: RunChatOptions = {}): Promise<void> {
       (msgs, offered) => client.chatWithTools({ messages: msgs, tools: offered, maxTokens }),
       apiMessages,
       tools,
-      (name, args) => getBridge().callTool(name, args),
+      (name, args) => getBridge().callTool(alias.get(name) ?? name, args),
       {
         approve: autoApprove
           ? undefined

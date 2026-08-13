@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import type { ChatResponse, RawMessage, ToolSchema } from '../llm/types.ts';
-import { runToolLoop, toolSchema } from './toolLoop.ts';
+import { aliasMap, runToolLoop, safeToolName, toolSchema } from './toolLoop.ts';
 
 function reply(content: string, toolCalls: { name: string; args: unknown; id?: string }[] = []): ChatResponse {
   return {
@@ -11,11 +11,19 @@ function reply(content: string, toolCalls: { name: string; args: unknown; id?: s
   };
 }
 
-test('toolSchema: descriptor -> OpenAI function schema', () => {
+test('toolSchema: descriptor -> OpenAI function schema (name sanitized)', () => {
   const s = toolSchema({ name: 'text.stats', description: 'd', inputSchema: { type: 'object', properties: {} } });
   assert.equal(s.type, 'function');
-  assert.equal(s.function.name, 'text.stats');
+  assert.equal(s.function.name, 'text_stats'); // dots stripped for provider safety
   assert.deepEqual(s.function.parameters, { type: 'object', properties: {} });
+});
+
+test('safeToolName / aliasMap map dotted ids to provider-safe names and back', () => {
+  assert.equal(safeToolName('data.csv_to_json'), 'data_csv_to_json');
+  assert.equal(safeToolName('plain'), 'plain');
+  const alias = aliasMap(['text.stats', 'fs.summarize']);
+  assert.equal(alias.get('text_stats'), 'text.stats');
+  assert.equal(alias.get('fs_summarize'), 'fs.summarize');
 });
 
 test('runToolLoop: returns final immediately when no tool calls', async () => {

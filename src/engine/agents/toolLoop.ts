@@ -24,6 +24,19 @@ export interface ToolLoopOptions {
   maxSteps?: number;
 }
 
+/**
+ * Provider-safe function name. Names sent to providers must match
+ * `^[a-zA-Z0-9_-]+$` (NVIDIA rejects dots), so map our dotted tool ids.
+ */
+export function safeToolName(name: string): string {
+  return name.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+/** Map provider-safe names back to the real (dotted) tool names. */
+export function aliasMap(names: string[]): Map<string, string> {
+  return new Map(names.map((n) => [safeToolName(n), n]));
+}
+
 /** Convert a tool registry descriptor to an OpenAI function-tool schema. */
 export function toolSchema(descriptor: {
   name: string;
@@ -33,7 +46,7 @@ export function toolSchema(descriptor: {
   return {
     type: 'function',
     function: {
-      name: descriptor.name,
+      name: safeToolName(descriptor.name),
       description: descriptor.description ?? '',
       parameters: descriptor.inputSchema ?? { type: 'object', properties: {} },
     },

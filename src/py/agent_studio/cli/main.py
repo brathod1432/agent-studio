@@ -25,7 +25,7 @@ from ..agents.catalog import load_agent_by_id
 from ..agents.catalog import load_catalog as load_agent_catalog
 from ..agents.runner import run_agent
 from ..agents.spec import AgentSpec, AgentSpecError
-from ..agents.tool_loop import run_tool_loop, tool_schema
+from ..agents.tool_loop import alias_map, run_tool_loop, tool_schema
 from ..config.loader import (
     configure_provider,
     load_catalog,
@@ -660,10 +660,15 @@ def _run_agent_turn(
     """Run one agentic (tool-calling) turn: the model may call tools, gated by
     approval, until it produces a final answer."""
     registry = default_registry()
-    tools = [tool_schema(d) for d in registry.list()]
+    descriptors = registry.list()
+    tools = [tool_schema(d) for d in descriptors]
+    alias = alias_map([d["name"] for d in descriptors])  # provider-safe -> real name
 
     store.append(conversation, ChatMessage("user", message))
     api_messages = [{"role": "system", "content": system_text}] + [m.to_dict() for m in conversation.messages]
+
+    def execute(name: str, tool_args: dict[str, Any]) -> Any:
+        return registry.call(alias.get(name, name), tool_args)
 
     def llm(msgs: list[dict[str, Any]], offered: list[dict[str, Any]]) -> ChatResponse:
         return client.chat_with_tools(msgs, offered, max_tokens=max_tokens)
@@ -686,7 +691,7 @@ def _run_agent_turn(
         llm,
         api_messages,
         tools,
-        registry.call,
+        execute,
         approve=None if auto_approve else approve,
         on_event=on_event,
         max_steps=max_steps,

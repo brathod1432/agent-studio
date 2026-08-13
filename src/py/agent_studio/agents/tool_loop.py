@@ -12,11 +12,25 @@ so it is unit-testable without a network or real tools.
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from ..llm.types import ChatResponse
+
+_UNSAFE_NAME = re.compile(r"[^a-zA-Z0-9_-]")
+
+
+def safe_tool_name(name: str) -> str:
+    """Function names sent to providers must match ^[a-zA-Z0-9_-]+$ (e.g. NVIDIA
+    rejects dots). Map our dotted tool ids to a provider-safe form."""
+    return _UNSAFE_NAME.sub("_", name)
+
+
+def alias_map(names: list[str]) -> dict[str, str]:
+    """Map provider-safe names back to the real (dotted) tool names."""
+    return {safe_tool_name(n): n for n in names}
 
 # chat(messages, tools) -> ChatResponse (with .content and .tool_calls)
 LLMFn = Callable[[list[dict[str, Any]], list[dict[str, Any]]], ChatResponse]
@@ -38,11 +52,12 @@ class ToolLoopResult:
 
 
 def tool_schema(descriptor: dict[str, Any]) -> dict[str, Any]:
-    """Convert a tool registry descriptor to an OpenAI function-tool schema."""
+    """Convert a tool registry descriptor to an OpenAI function-tool schema. The
+    function name is sanitized to the provider-safe form (see safe_tool_name)."""
     return {
         "type": "function",
         "function": {
-            "name": descriptor["name"],
+            "name": safe_tool_name(descriptor["name"]),
             "description": descriptor.get("description", ""),
             "parameters": descriptor.get("inputSchema") or {"type": "object", "properties": {}},
         },

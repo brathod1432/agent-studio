@@ -4,7 +4,7 @@ import json
 import unittest
 from typing import Any
 
-from agent_studio.agents.tool_loop import run_tool_loop, tool_schema
+from agent_studio.agents.tool_loop import alias_map, run_tool_loop, safe_tool_name, tool_schema
 from agent_studio.llm.types import ChatResponse, ToolCall
 
 
@@ -13,13 +13,21 @@ def _call(name: str, args: dict[str, Any], cid: str = "c1") -> ToolCall:
 
 
 class ToolSchemaTests(unittest.TestCase):
-    def test_descriptor_to_openai_schema(self) -> None:
+    def test_descriptor_to_openai_schema_sanitizes_name(self) -> None:
         schema = tool_schema(
             {"name": "text.stats", "description": "d", "inputSchema": {"type": "object", "properties": {}}}
         )
         self.assertEqual(schema["type"], "function")
-        self.assertEqual(schema["function"]["name"], "text.stats")
+        # Dotted ids are sanitized to a provider-safe form (NVIDIA rejects dots).
+        self.assertEqual(schema["function"]["name"], "text_stats")
         self.assertEqual(schema["function"]["parameters"], {"type": "object", "properties": {}})
+
+    def test_safe_name_and_alias_map(self) -> None:
+        self.assertEqual(safe_tool_name("data.csv_to_json"), "data_csv_to_json")
+        self.assertEqual(safe_tool_name("plain"), "plain")
+        alias = alias_map(["text.stats", "fs.summarize"])
+        self.assertEqual(alias["text_stats"], "text.stats")
+        self.assertEqual(alias["fs_summarize"], "fs.summarize")
 
 
 class RunToolLoopTests(unittest.TestCase):

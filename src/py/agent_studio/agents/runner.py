@@ -11,7 +11,7 @@ from ..llm.types import ChatResponse
 from ..tools.base import ToolRegistry
 from .policy import make_executor, resolve_allowed_tools
 from .spec import AgentSpec
-from .tool_loop import EventFn, run_tool_loop, tool_schema
+from .tool_loop import EventFn, alias_map, run_tool_loop, tool_schema
 from .workflows.registry import get_pipeline
 
 # llm(messages, tools) -> ChatResponse
@@ -75,7 +75,12 @@ def _run_agentic(
         raise ValueError(f"{spec.id}: an LLM is required for an agentic agent.")
     allowed = resolve_allowed_tools(spec, registry)  # validates allow-list + read-only
     tools = [tool_schema(t.descriptor()) for t in allowed]
-    executor = make_executor(spec, registry)  # refuses any non-allow-listed tool
+    # Providers see sanitized (dot-free) names; map back to the real tool id.
+    alias = alias_map([t.name for t in allowed])
+    guarded = make_executor(spec, registry)  # refuses any non-allow-listed tool
+
+    def executor(name: str, arguments: dict[str, Any]) -> Any:
+        return guarded(alias.get(name, name), arguments)
     messages = [
         {"role": "system", "content": spec.prompt or DEFAULT_SYSTEM},
         {"role": "user", "content": task},
