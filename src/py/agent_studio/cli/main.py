@@ -99,6 +99,41 @@ def cmd_privacy(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_history(_args: argparse.Namespace) -> int:
+    _print_summaries(ConversationStore().list())
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    conv = ConversationStore().try_load(args.id)
+    if conv is None:
+        print(f"No conversation with id {args.id}.", file=sys.stderr)
+        return 1
+    print(f"# {conv.title}")
+    if conv.model:
+        print(f"(model: {conv.model}, provider: {conv.provider_id})")
+    print("")
+    for m in conv.messages:
+        who = "you" if m.role == "user" else m.role
+        print(f"{who}> {m.content}\n")
+    return 0
+
+
+def cmd_export(args: argparse.Namespace) -> int:
+    conv = ConversationStore().try_load(args.id)
+    if conv is None:
+        print(f"No conversation with id {args.id}.", file=sys.stderr)
+        return 1
+    path = Path(args.path) if args.path else Path(default_export_filename(conv))
+    try:
+        path.write_text(conversation_to_markdown(conv), encoding="utf-8")
+    except OSError as err:
+        print(f'Could not write "{path}": {err}', file=sys.stderr)
+        return 1
+    print(f"Exported to {path}")
+    return 0
+
+
 def cmd_purge(args: argparse.Namespace) -> int:
     if not args.all and args.older_than is None:
         print("Usage: agent-studio-py purge --all | --older-than <days> [--yes]", file=sys.stderr)
@@ -680,6 +715,15 @@ def build_parser() -> argparse.ArgumentParser:
     onb.add_argument("--api-key-env", help="Env var name that holds the API key")
     onb.add_argument("--api-key", help="API key value (written to .env.local; not stored in settings)")
 
+    sub.add_parser("history", help="List saved conversations")
+
+    show = sub.add_parser("show", help="Print a saved conversation")
+    show.add_argument("id", help="Conversation id")
+
+    export = sub.add_parser("export", help="Export a conversation to Markdown")
+    export.add_argument("id", help="Conversation id")
+    export.add_argument("path", nargs="?", help="Output path (default: derived from title)")
+
     purge = sub.add_parser("purge", help="Delete saved conversations")
     purge.add_argument("--all", action="store_true", help="Delete every saved conversation")
     purge.add_argument("--older-than", type=int, metavar="DAYS", help="Delete conversations older than N days")
@@ -748,6 +792,9 @@ def main(argv: list[str] | None = None) -> int:
         "doctor": cmd_doctor,
         "onboard": cmd_onboard,
         "privacy": cmd_privacy,
+        "history": cmd_history,
+        "show": cmd_show,
+        "export": cmd_export,
         "purge": cmd_purge,
         "ask": cmd_ask,
         "chat": cmd_chat,

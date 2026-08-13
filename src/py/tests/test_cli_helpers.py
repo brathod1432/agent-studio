@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from agent_studio.cli.main import cmd_privacy, cmd_purge
+from agent_studio.cli.main import cmd_export, cmd_history, cmd_privacy, cmd_purge, cmd_show
 from agent_studio.config.loader import (
     configure_provider,
     load_catalog,
@@ -148,6 +148,47 @@ class PurgeTests(unittest.TestCase):
                 self.assertIn("Data directory:", out)
                 # Basename is stable across Windows short/long path forms.
                 self.assertIn(Path(d).name, out)
+
+
+class ConversationCommandTests(unittest.TestCase):
+    def _seed(self, data_dir: str) -> str:
+        store = ConversationStore()
+        conv = store.create(provider_id="nvidia", model="m")
+        store.append(conv, ChatMessage("user", "hello there"))
+        store.append(conv, ChatMessage("assistant", "hi back"))
+        store.save(conv)
+        return conv.id
+
+    def test_history_show_export(self) -> None:
+        import contextlib
+        import io
+
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                cid = self._seed(d)
+
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    self.assertEqual(cmd_history(argparse.Namespace()), 0)
+                self.assertIn(cid, buf.getvalue())
+
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    self.assertEqual(cmd_show(argparse.Namespace(id=cid)), 0)
+                self.assertIn("hello there", buf.getvalue())
+
+                out = Path(d) / "out.md"
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    rc = cmd_export(argparse.Namespace(id=cid, path=str(out)))
+                self.assertEqual(rc, 0)
+                self.assertTrue(out.exists())
+                self.assertIn("hi back", out.read_text(encoding="utf-8"))
+
+    def test_show_unknown_id_returns_1(self) -> None:
+        with tempfile.TemporaryDirectory() as d:
+            with mock.patch.dict(os.environ, {"AGENT_STUDIO_DATA_DIR": d}):
+                self.assertEqual(cmd_show(argparse.Namespace(id="nope")), 1)
 
 
 class PromptTests(unittest.TestCase):

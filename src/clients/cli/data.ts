@@ -4,10 +4,17 @@
 //   purge --all [--yes]     delete every saved conversation (with confirmation)
 //   purge --older-than N     delete conversations not updated in N days
 
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { ConversationStore, conversationsDir, isFirstRun, resolvePaths } from '../../engine/index.ts';
+import {
+  ConversationStore,
+  conversationsDir,
+  conversationToMarkdown,
+  defaultExportFilename,
+  isFirstRun,
+  resolvePaths,
+} from '../../engine/index.ts';
 import { createPrompter } from './prompt.ts';
 
 function conversationsBytes(dir: string): number {
@@ -37,6 +44,63 @@ export function runPrivacy(): void {
   console.log('  - API keys live only in .env.local (referenced by name), never in settings/conversations.');
   console.log('  - Use "chat --no-save" for an ephemeral session, "--redact-secrets" to scrub secrets,');
   console.log('    and "purge" to delete stored conversations.');
+}
+
+export function runHistory(): void {
+  const summaries = new ConversationStore().list();
+  if (summaries.length === 0) {
+    console.log('  (no saved conversations yet)');
+    return;
+  }
+  summaries.forEach((s, i) => {
+    console.log(`  ${i + 1}. ${s.title}  ·  ${s.messageCount} msgs  ·  ${s.updatedAt}`);
+    console.log(`     id: ${s.id}`);
+  });
+}
+
+export function runShow(argv: string[]): void {
+  const id = argv[0];
+  if (!id) {
+    console.error('Usage: agent-studio show <id>');
+    process.exitCode = 2;
+    return;
+  }
+  const conv = new ConversationStore().tryLoad(id);
+  if (!conv) {
+    console.error(`No conversation with id ${id}.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(`# ${conv.title}`);
+  if (conv.model) console.log(`(model: ${conv.model}, provider: ${conv.providerId ?? '?'})`);
+  console.log('');
+  for (const m of conv.messages) {
+    const who = m.role === 'user' ? 'you' : m.role;
+    console.log(`${who}> ${m.content}\n`);
+  }
+}
+
+export function runExport(argv: string[]): void {
+  const id = argv[0];
+  if (!id) {
+    console.error('Usage: agent-studio export <id> [path]');
+    process.exitCode = 2;
+    return;
+  }
+  const conv = new ConversationStore().tryLoad(id);
+  if (!conv) {
+    console.error(`No conversation with id ${id}.`);
+    process.exitCode = 1;
+    return;
+  }
+  const path = argv[1] ?? defaultExportFilename(conv);
+  try {
+    writeFileSync(path, conversationToMarkdown(conv), 'utf8');
+    console.log(`Exported to ${path}`);
+  } catch (err) {
+    console.error(`Could not write "${path}": ${err instanceof Error ? err.message : String(err)}`);
+    process.exitCode = 1;
+  }
 }
 
 export interface PurgeArgs {
