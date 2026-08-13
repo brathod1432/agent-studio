@@ -1,0 +1,10 @@
+{
+  "id": "todo-scanner",
+  "name": "TODO Scanner",
+  "description": "Scan a directory for TODO/FIXME/HACK/XXX markers and report them with file and line. Deterministic and read-only.",
+  "workflow": "pipeline",
+  "pipeline": "todo_scan",
+  "tools": ["report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 4 },
+  "promptFile": "prompt.md"
+}

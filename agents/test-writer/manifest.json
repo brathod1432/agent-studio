@@ -1,0 +1,9 @@
+{
+  "id": "test-writer",
+  "name": "Test Writer",
+  "description": "Propose unit tests for provided code, using structure and complexity analysis to target the riskiest functions. Read-only (drafts tests, does not write files).",
+  "workflow": "agentic",
+  "tools": ["code.analyze", "code.complexity", "report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 6 },
+  "promptFile": "prompt.md"
+}

@@ -68,6 +68,66 @@ def analyze_python(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_BRANCH_NODES = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.ExceptHandler,
+    ast.With,
+    ast.AsyncWith,
+    ast.IfExp,
+    ast.comprehension,
+    ast.BoolOp,
+)
+
+
+def _complexity(node: ast.AST) -> int:
+    """A simple cyclomatic complexity: 1 + number of branching constructs."""
+    score = 1
+    for child in ast.walk(node):
+        if isinstance(child, ast.BoolOp):
+            score += len(child.values) - 1  # each and/or adds a path
+        elif isinstance(child, _BRANCH_NODES):
+            score += 1
+    return score
+
+
+def analyze_complexity(args: dict[str, Any]) -> dict[str, Any]:
+    source = _load_source(args)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as err:
+        raise ToolError(f"Syntax error: {err.msg} (line {err.lineno})") from err
+
+    functions: list[dict[str, Any]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            functions.append(
+                {"name": node.name, "lineno": node.lineno, "complexity": _complexity(node)}
+            )
+    functions.sort(key=lambda f: f["complexity"], reverse=True)
+    scores = [f["complexity"] for f in functions]
+    return {
+        "functions": functions,
+        "count": len(functions),
+        "max_complexity": max(scores) if scores else 0,
+        "avg_complexity": round(sum(scores) / len(scores), 2) if scores else 0,
+        "hotspots": [f for f in functions if f["complexity"] >= 10],
+    }
+
+
+CODE_COMPLEXITY = Tool(
+    name="code.complexity",
+    description="Per-function cyclomatic complexity of Python source (via 'source' or 'path'); flags hotspots (>=10).",
+    input_schema={
+        "type": "object",
+        "properties": {"source": {"type": "string"}, "path": {"type": "string"}},
+    },
+    handler=analyze_complexity,
+)
+
+
 CODE_ANALYZE = Tool(
     name="code.analyze",
     description="Parse Python source (via 'source' or 'path') and report functions, classes, imports, and counts.",

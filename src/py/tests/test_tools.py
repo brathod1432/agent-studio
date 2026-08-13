@@ -68,11 +68,38 @@ class TextToolTests(unittest.TestCase):
         self.assertIn("cats", out["summary"].lower())
 
 
+class CodeComplexityTests(unittest.TestCase):
+    def test_complexity_scores_and_hotspots(self) -> None:
+        src = (
+            "def simple():\n    return 1\n\n"
+            "def branchy(x):\n"
+            "    if x > 0 and x < 10:\n        return 1\n"
+            "    for i in range(x):\n"
+            "        if i % 2 == 0:\n            pass\n"
+            "    return 0\n"
+        )
+        out = default_registry().call("code.complexity", {"source": src})
+        self.assertEqual(out["count"], 2)
+        names = {f["name"]: f["complexity"] for f in out["functions"]}
+        self.assertEqual(names["simple"], 1)
+        self.assertGreater(names["branchy"], names["simple"])
+        self.assertGreaterEqual(out["max_complexity"], names["branchy"])
+
+
 class DataToolTests(unittest.TestCase):
     def test_csv_to_json_with_header(self) -> None:
         out = default_registry().call("data.csv_to_json", {"csv": "a,b\n1,2\n3,4\n"})
         self.assertEqual(out["count"], 2)
         self.assertEqual(out["rows"][0], {"a": "1", "b": "2"})
+
+    def test_summarize_csv_numeric_columns(self) -> None:
+        out = default_registry().call("data.summarize_csv", {"csv": "name,score\na,10\nb,20\nc,30\n"})
+        self.assertEqual(out["rows"], 3)
+        self.assertIn("score", out["numeric"])
+        self.assertEqual(out["numeric"]["score"]["min"], 10.0)
+        self.assertEqual(out["numeric"]["score"]["max"], 30.0)
+        self.assertEqual(out["numeric"]["score"]["mean"], 20.0)
+        self.assertNotIn("name", out["numeric"])  # non-numeric column excluded
 
     def test_json_query_dotted_path(self) -> None:
         out = default_registry().call("data.json_query", {"data": {"a": {"b": [10, 20]}}, "path": "a.b.1"})

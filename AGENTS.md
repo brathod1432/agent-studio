@@ -135,8 +135,34 @@ supported (line-buffered; `/exit` or EOF ends the session).
 - **`doctor` git-hygiene:** warns if `.env.local` is tracked by git (with the
   `git rm --cached` fix) or not git-ignored.
 
+## Agents (multi-agent framework)
+Specialized agents live in the shared top-level **`agents/`** catalog (the single
+source of truth, like `config/`). Each agent has a `manifest.json` (runtime,
+workflow, tool allow-list, policy), a `prompt.md`, and `AGENT.md` docs. Shipped:
+`code-reviewer` and `security-auditor` (deterministic **pipeline** workflows),
+plus `data-analyst`, `doc-writer`, `research-summarizer` (**agentic** — model-
+driven tool loop).
+
+- **Brains in Python:** `src/py/agent_studio/agents/` — `spec`/`catalog` loaders,
+  `policy` (least-privilege tool allow-list + read-only enforcement + a guarded
+  executor that refuses any non-allow-listed tool), `tool_loop`, `runner`, and
+  deterministic `workflows/` (code_review, security_audit).
+- **Run it:**
+  ```
+  agent-studio-py agents list | show <id> | run <id> <task|path> [--json]
+  agent-studio      agents list | show <id> | run <id> <task|path> [--json]   # via the bridge
+  ```
+  The TypeScript CLI drives the Python agents over the stdio bridge
+  (`agents/list|describe|run` RPC methods); the host runs in your cwd with
+  `PYTHONPATH=src/py`.
+- **Security:** an agent can only call the tools in its allow-list; `readOnly`
+  agents are refused any non-read-only tool; agentic runs are bounded by
+  `maxSteps`; the tools' own sensitive-file guards still apply; the
+  `security-auditor` never prints secret values.
+
 ## Structure
 ```
+agents/                     shared agent catalog (manifests + prompts + docs)
 config/                     provider presets + defaults (editable, no code changes)
 src/engine/core/            paths, secrets, redact, logger, envFile
 src/engine/config/          types, catalog loader, settings store (+ first-run)

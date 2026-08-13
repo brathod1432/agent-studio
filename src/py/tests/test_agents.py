@@ -9,7 +9,13 @@ from agent_studio.agents.catalog import load_catalog
 from agent_studio.agents.policy import PolicyError, make_executor, resolve_allowed_tools
 from agent_studio.agents.runner import run_agent
 from agent_studio.agents.spec import AgentPolicy, AgentSpec
-from agent_studio.agents.workflows import code_review, security_audit
+from agent_studio.agents.workflows import (
+    api_surface,
+    code_review,
+    dependency_audit,
+    security_audit,
+    todo_scan,
+)
 from agent_studio.llm.types import ChatResponse, ToolCall
 from agent_studio.tools.base import ToolError
 from agent_studio.tools.registry import default_registry
@@ -34,7 +40,17 @@ def _spec(**kw: Any) -> AgentSpec:
 class CatalogTests(unittest.TestCase):
     def test_loads_the_shipped_catalog(self) -> None:
         catalog = load_catalog()  # real agents/ dir at the repo root
-        for expected in ["code-reviewer", "security-auditor", "data-analyst", "doc-writer"]:
+        for expected in [
+            "code-reviewer",
+            "security-auditor",
+            "data-analyst",
+            "doc-writer",
+            "research-summarizer",
+            "dependency-auditor",
+            "test-writer",
+            "todo-scanner",
+            "api-surface",
+        ]:
             self.assertIn(expected, catalog)
         cr = catalog["code-reviewer"]
         self.assertEqual(cr.workflow, "pipeline")
@@ -81,6 +97,45 @@ class PipelineTests(unittest.TestCase):
             self.assertIn("Security Audit", result["report"])
             # The report must NOT contain the raw secret value.
             self.assertNotIn("nvapi-ABCDEF0123456789ZZZZ", result["report"])
+
+
+    def test_dependency_audit_flags_floating_versions(self) -> None:
+        reg = default_registry()
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "package.json").write_text(
+                '{"dependencies": {"left-pad": "^1.0.0", "exact": "2.3.4"}}', encoding="utf-8"
+            )
+            (Path(d) / "requirements.txt").write_text("requests\npinned==1.2.3\n", encoding="utf-8")
+            result = dependency_audit.run(reg, d)
+            self.assertIn("Dependency Audit", result["report"])
+            self.assertGreaterEqual(result["total_dependencies"], 4)
+            issues = " ".join(f["issue"] for f in result["flags"])
+            self.assertIn("left-pad", issues)  # floating ^
+            self.assertIn("requests", issues)  # unpinned requirement
+
+
+    def test_todo_scan_finds_markers(self) -> None:
+        reg = default_registry()
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "m.py").write_text("x = 1  # TODO: refactor this\n# FIXME later\n", encoding="utf-8")
+            result = todo_scan.run(reg, d)
+            markers = {m["marker"] for m in result["markers"]}
+            self.assertIn("TODO", markers)
+            self.assertIn("FIXME", markers)
+            self.assertIn("TODO Scan", result["report"])
+
+    def test_api_surface_lists_public_symbols(self) -> None:
+        reg = default_registry()
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "m.py").write_text(
+                "def public_fn():\n    return 1\n\ndef _private():\n    pass\n\nclass PublicClass:\n    pass\n",
+                encoding="utf-8",
+            )
+            result = api_surface.run(reg, d)
+            mod = result["modules"][0]
+            self.assertIn("public_fn", mod["functions"])
+            self.assertNotIn("_private", mod["functions"])
+            self.assertIn("PublicClass", mod["classes"])
 
 
 class RunnerTests(unittest.TestCase):

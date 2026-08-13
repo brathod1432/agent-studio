@@ -1,0 +1,10 @@
+{
+  "id": "dependency-auditor",
+  "name": "Dependency Auditor",
+  "description": "Inventory a project's declared dependencies (pyproject.toml, package.json, requirements.txt) and flag unpinned/floating versions. Deterministic and read-only.",
+  "workflow": "pipeline",
+  "pipeline": "dependency_audit",
+  "tools": ["report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 4 },
+  "promptFile": "prompt.md"
+}

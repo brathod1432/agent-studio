@@ -1,0 +1,10 @@
+{
+  "id": "api-surface",
+  "name": "API Surface",
+  "description": "Map the public API of a Python package: modules and their public (non-underscore) functions and classes. Deterministic and read-only.",
+  "workflow": "pipeline",
+  "pipeline": "api_surface",
+  "tools": ["code.analyze", "report.markdown"],
+  "policy": { "readOnly": true, "autoApprove": true, "maxSteps": 6 },
+  "promptFile": "prompt.md"
+}
