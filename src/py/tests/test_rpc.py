@@ -40,6 +40,28 @@ class HandleRequestTests(unittest.TestCase):
         resp = handle_request({"id": 5, "method": "frobnicate"}, self.reg)
         self.assertEqual(resp["error"]["code"], -32601)
 
+    def test_agents_list(self) -> None:
+        resp = handle_request({"id": 6, "method": "agents/list"}, self.reg)
+        ids = [a["id"] for a in resp["result"]["agents"]]
+        self.assertIn("security-auditor", ids)
+        self.assertIn("code-reviewer", ids)
+
+    def test_agents_run_pipeline(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "m.py").write_text("def a():\n    return 1\n", encoding="utf-8")
+            resp = handle_request(
+                {"id": 7, "method": "agents/run", "params": {"id": "code-reviewer", "task": d}}, self.reg
+            )
+            self.assertEqual(resp["result"]["workflow"], "pipeline")
+            self.assertIn("Code Review", resp["result"]["content"])
+
+    def test_agents_run_unknown_is_error(self) -> None:
+        resp = handle_request({"id": 8, "method": "agents/run", "params": {"id": "nope", "task": "x"}}, self.reg)
+        self.assertIn("error", resp)
+
     def test_notification_has_no_response(self) -> None:
         self.assertIsNone(handle_request({"method": "ping"}, self.reg))
 

@@ -47,6 +47,12 @@ def handle_request(request: Any, registry: ToolRegistry) -> dict[str, Any] | Non
             if not isinstance(name, str):
                 return _error(req_id, INVALID_REQUEST, "tools/call requires a string 'name'.")
             result = registry.call(name, params.get("arguments") or {})
+        elif method == "agents/list":
+            result = {"agents": _agents_list()}
+        elif method == "agents/describe":
+            result = _agents_describe(str(params.get("id") or ""))
+        elif method == "agents/run":
+            result = _agents_run(registry, str(params.get("id") or ""), str(params.get("task") or ""))
         else:
             return _error(req_id, METHOD_NOT_FOUND, f"Unknown method: {method}")
     except ToolError as err:
@@ -61,6 +67,54 @@ def handle_request(request: Any, registry: ToolRegistry) -> dict[str, Any] | Non
 
 def _error(req_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
+
+
+# -- agents (imported lazily so a bad manifest can't break tools-only hosts) --
+def _agents_list() -> list[dict[str, Any]]:
+    from ..agents.catalog import load_catalog
+
+    return [spec.summary() for spec in load_catalog().values()]
+
+
+def _agents_describe(agent_id: str) -> dict[str, Any]:
+    from ..agents.catalog import load_agent_by_id
+
+    spec = load_agent_by_id(agent_id)
+    return {**spec.summary(), "prompt": spec.prompt}
+
+
+def _agents_run(registry: ToolRegistry, agent_id: str, task: str) -> dict[str, Any]:
+    import os
+
+    from ..agents.catalog import load_agent_by_id
+    from ..agents.runner import run_agent
+    from ..core.paths import resolve_paths
+    from ..core.secrets import load_environment
+    from ..factory import create_llm_from_settings
+    from ..llm.types import ChatResponse
+
+    spec = load_agent_by_id(agent_id)
+    if spec.workflow == "pipeline":
+        result = run_agent(spec, task, registry)
+    else:
+        env = load_environment(os.environ, resolve_paths().project_root)
+        resolved = create_llm_from_settings(env)
+        client = resolved.client
+
+        def llm(messages: list[dict[str, Any]], tools: list[dict[str, Any]]) -> ChatResponse:
+            return client.chat_with_tools(
+                messages, tools, max_tokens=resolved.settings.max_output_tokens or None
+            )
+
+        result = run_agent(spec, task, registry, llm=llm)
+    return {
+        "agent": result.agent_id,
+        "workflow": result.workflow,
+        "content": result.content,
+        "steps": result.steps,
+        "toolCallsMade": result.tool_calls_made,
+        "data": result.data,
+    }
 
 
 def serve(
