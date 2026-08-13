@@ -80,11 +80,19 @@ supported (line-buffered; `/exit` or EOF ends the session).
 
 ## Extra CLI commands & flags (both runtimes unless noted)
 - `version` / `--version` — print the version.
+- `onboard` (Python; TS already had it) — guided first-run setup (provider, key
+  to `.env.local`, model from a live list, health-check). Non-interactive flags:
+  `--provider/--model/--base-url/--api-key-env/--api-key`.
 - `privacy` — show where data is stored (data/config dirs, settings, conversation
   count + size) + guidance.
+- `history` / `show <id>` / `export <id> [path]` — list, print, or export stored
+  conversations from outside the chat loop.
 - `purge --all | --older-than <days> [--yes]` — delete stored conversations
   (confirms interactively; refuses in non-interactive mode without `--yes`).
 - `ask --model <id> --temperature <t>` — per-invocation overrides (no global change).
+- `ask|chat --max-tokens <n>` — cap generated tokens (cost/DoS control); a
+  `maxOutputTokens` config default (0 = unset) applies otherwise.
+- `ask|chat --system "..."` — set the system prompt / persona for the session.
 - `chat|ask --redact-secrets` — scrub secret-looking content before sending/persisting.
 - `chat|ask --allow-any-file` — relax the `@file` safety guards (see below).
 
@@ -103,6 +111,11 @@ supported (line-buffered; `/exit` or EOF ends the session).
 - **Web onboarding** (`serve`) uses a one-time CSRF token (X-CSRF-Token on POST),
   an Origin allowlist, and restrictive headers (CSP `default-src 'none'`,
   nosniff, `X-Frame-Options: DENY`, no-referrer) — in addition to loopback-only.
+- **Python tools** refuse to read/surface sensitive files: `code.analyze` errors
+  on a credential/key path; `fs.summarize` skips sensitive files from its listing
+  (reporting `skipped_sensitive`). Both accept `allow_sensitive=true` to override.
+- **Output cap:** `--max-tokens` / `maxOutputTokens` bound reply length as a
+  denial-of-wallet / runaway-generation control.
 
 ## Structure
 ```
