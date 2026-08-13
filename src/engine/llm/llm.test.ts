@@ -62,6 +62,30 @@ test('model override in the request is honored', async () => {
   assert.equal(JSON.parse(String(calls[0]!.init?.body)).model, 'nvidia/other-model');
 });
 
+test('chatWithTools advertises tools and parses tool_calls', async () => {
+  const toolResponse = jsonResponse(200, {
+    choices: [
+      {
+        message: {
+          content: '',
+          tool_calls: [{ id: 'call_1', type: 'function', function: { name: 'text.stats', arguments: '{"text":"a b"}' } }],
+        },
+        finish_reason: 'tool_calls',
+      },
+    ],
+  });
+  const { fetch, calls } = recordingFetch(toolResponse);
+  const client = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: fetch });
+  const tools = [{ type: 'function' as const, function: { name: 'text.stats', parameters: {} } }];
+  const res = await client.chatWithTools({ messages: [{ role: 'user', content: 'count a b' }], tools });
+  assert.equal(res.toolCalls?.length, 1);
+  assert.equal(res.toolCalls?.[0]?.name, 'text.stats');
+  assert.equal(res.toolCalls?.[0]?.arguments, '{"text":"a b"}');
+  const body = JSON.parse(String(calls[0]!.init?.body));
+  assert.deepEqual(body.tools, tools);
+  assert.equal(body.tool_choice, 'auto');
+});
+
 test('maxTokens is sent as max_tokens when positive, omitted otherwise', async () => {
   const capped = recordingFetch(chatCompletionResponse('ok'));
   const c1 = createLLMClient({ config: nvidiaConfig(), apiKey: KEY, request: REQUEST, fetchImpl: capped.fetch });

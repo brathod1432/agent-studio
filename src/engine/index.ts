@@ -84,6 +84,10 @@ export type {
   ChatRequest,
   ChatResponse,
   TokenUsage,
+  ToolCall,
+  ToolSchema,
+  RawMessage,
+  ToolChatRequest,
   StreamDeltaHandler,
 } from './llm/types.ts';
 export {
@@ -126,6 +130,14 @@ export { PromptRegistry, defaultRegistry, CHAT_SYSTEM } from './prompts/registry
 
 export { type Agent, type StreamingAgent, type AgentDeltaHandler } from './agents/agent.ts';
 export { ChatAgent, type ChatAgentOptions, type TurnOptions } from './agents/chatAgent.ts';
+export {
+  runToolLoop,
+  toolSchema,
+  type ToolLoopResult,
+  type ToolLoopLLM,
+  type ToolExecute,
+  type ToolApprove,
+} from './agents/toolLoop.ts';
 
 // Python tool bridge (process-isolated stdio JSON-RPC extension).
 export {

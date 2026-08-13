@@ -14,6 +14,8 @@ import type {
   LLMClient,
   LLMClientOptions,
   StreamDeltaHandler,
+  ToolCall,
+  ToolChatRequest,
 } from '../types.ts';
 
 /** Upper bound on any single backoff wait, so a huge Retry-After can't hang us. */
@@ -43,8 +45,12 @@ function backoffMs(err: ProviderError, attempt: number, baseMs: number): number 
   return Math.min(fromServer ?? exponential + jitter, MAX_BACKOFF_MS);
 }
 
+interface RawToolCall {
+  id?: string;
+  function?: { name?: string; arguments?: string };
+}
 interface ChatCompletionChoice {
-  message?: { content?: string };
+  message?: { content?: string; tool_calls?: RawToolCall[] };
   delta?: { content?: string };
   finish_reason?: string;
 }
@@ -174,6 +180,70 @@ export class OpenAICompatibleChatClient implements LLMClient {
               totalTokens: data.usage.total_tokens,
             }
           : undefined,
+      };
+    }
+  }
+
+  async chatWithTools(request: ToolChatRequest): Promise<ChatResponse> {
+    this.#requireKey();
+    const url = joinUrl(this.config.baseUrl, 'chat/completions');
+    const body: Record<string, unknown> = {
+      model: request.model ?? this.config.model,
+      messages: request.messages,
+      stream: false,
+    };
+    if (request.tools.length > 0) {
+      body.tools = request.tools;
+      body.tool_choice = 'auto';
+    }
+    if (request.temperature != null) body.temperature = request.temperature;
+    if (request.maxTokens != null && request.maxTokens > 0) body.max_tokens = request.maxTokens;
+    const bodyStr = JSON.stringify(body);
+
+    for (let attempt = 0; ; attempt++) {
+      let res: Response;
+      try {
+        res = await fetchWithTimeout(
+          this.#fetch(),
+          url,
+          { method: 'POST', headers: this.#headers({ Accept: 'application/json' }), body: bodyStr },
+          this.#request.timeoutMs,
+        );
+      } catch (err) {
+        const perr = errorFromThrown(err);
+        if (this.#shouldRetry(perr, attempt)) {
+          await sleep(backoffMs(perr, attempt, this.#request.retryBaseDelayMs));
+          continue;
+        }
+        throw perr;
+      }
+      if (!res.ok) {
+        const perr = errorFromStatus(res.status, res.headers, await safeText(res));
+        if (this.#shouldRetry(perr, attempt)) {
+          await sleep(backoffMs(perr, attempt, this.#request.retryBaseDelayMs));
+          continue;
+        }
+        throw perr;
+      }
+      const data = (await res.json().catch(() => ({}))) as ChatCompletionBody;
+      const choice = data.choices?.[0];
+      const toolCalls: ToolCall[] = (choice?.message?.tool_calls ?? []).map((c, i) => ({
+        id: c.id ?? `call_${i}`,
+        name: c.function?.name ?? '',
+        arguments: c.function?.arguments ?? '{}',
+      }));
+      return {
+        content: choice?.message?.content ?? '',
+        model: data.model,
+        finishReason: choice?.finish_reason,
+        usage: data.usage
+          ? {
+              promptTokens: data.usage.prompt_tokens,
+              completionTokens: data.usage.completion_tokens,
+              totalTokens: data.usage.total_tokens,
+            }
+          : undefined,
+        toolCalls,
       };
     }
   }

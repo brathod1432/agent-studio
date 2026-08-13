@@ -32,11 +32,36 @@ export interface TokenUsage {
   totalTokens?: number;
 }
 
+/** A tool/function call requested by the model. */
+export interface ToolCall {
+  id: string;
+  name: string;
+  arguments: string; // raw JSON string as returned by the provider
+}
+
+/** OpenAI-style function-tool schema advertised to the model. */
+export interface ToolSchema {
+  type: 'function';
+  function: { name: string; description?: string; parameters?: unknown };
+}
+
+/** A raw OpenAI-shaped message (so assistant tool_calls + tool results thread). */
+export type RawMessage = Record<string, unknown>;
+
+export interface ToolChatRequest {
+  messages: RawMessage[];
+  tools: ToolSchema[];
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+}
+
 export interface ChatResponse {
   content: string;
   model?: string;
   finishReason?: string;
   usage?: TokenUsage;
+  toolCalls?: ToolCall[];
 }
 
 /** Called with each incremental text delta during streaming. */
@@ -49,6 +74,8 @@ export interface LLMClient {
   chat(request: ChatRequest): Promise<ChatResponse>;
   /** Streaming chat completion. Falls back to `chat` when unsupported. */
   chatStream(request: ChatRequest, onDelta: StreamDeltaHandler): Promise<ChatResponse>;
+  /** Non-streaming completion advertising tools; returns any tool_calls. */
+  chatWithTools(request: ToolChatRequest): Promise<ChatResponse>;
   /** Whether this client/model streams incrementally. */
   supportsStreaming(): boolean;
   /** Lightweight reachability + auth check. */

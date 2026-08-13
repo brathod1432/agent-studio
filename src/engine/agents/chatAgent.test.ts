@@ -38,6 +38,9 @@ class FakeLLM implements LLMClient {
     for (const word of this.#reply.split(' ')) onDelta(word + ' ');
     return { content: this.#reply, usage: this.#usage };
   }
+  async chatWithTools(): Promise<ChatResponse> {
+    return { content: this.#reply, usage: this.#usage, toolCalls: [] };
+  }
 }
 
 function setup(streaming = true, reply = 'assistant reply', usage?: TokenUsage) {
